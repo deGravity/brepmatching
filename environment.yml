@@ -1,0 +1,31 @@
+name: brepmatching
+channels:
+  - pytorch
+  - pyg
+  - conda-forge
+  - defaults
+  
+dependencies:
+  - python
+  - cudatoolkit=11.3
+  - pytorch
+  - pyg=2.0.3
+  - numpy
+  - pandas
+  - pytorch-lightning
+  - tensorboard
+  - pyarrow
+  - scipy
+  - scikit-learn
+  - tqdm
+  - matplotlib
+  - dotmap
+  - ipykernel
+  - eigen
+  - occt>=7.6
+  - cmake
+  - pybind11
+  - pip
+  - pip:
+    - xxhash
+    - git+https://github.com/degravity/automate.git@v1.0.4
