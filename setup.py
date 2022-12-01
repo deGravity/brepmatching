@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
-from distutils.core import setup, find_packages
+from setuptools import setup, find_packages
 
 setup(name='brepmatching',
     version='0.0.1',
     description='Learning to match BRep Topology',
     author='Ben Jones',
     author_email='benjones@cs.washington.edu',
-    license='MIT'
+    license='MIT',
     packages=find_packages()
 )
