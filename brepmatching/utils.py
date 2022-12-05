@@ -1,9 +1,14 @@
 from automate import HetData
+from torch import is_tensor
 
 def zip_hetdata(left, right):
     common_keys = set(left.keys).intersection(right.keys)
     data = HetData()
     for k in common_keys:
+        # A bit of a hack to remove non-batchable items
+        # The better place to fix this would be in Automate itself
+        if not is_tensor(left[k]) or not is_tensor(right[k]) or len(left[k].shape) == 0 or len(right[k].shape) == 0:
+            continue
         data['left_' + k] = left[k]
         data['right_' + k] = right[k]
     for k,v in left.__edge_sets__.items():

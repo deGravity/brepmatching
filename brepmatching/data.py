@@ -55,9 +55,9 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
             pass # The last match in our test wasn't in the dataset and was JFD, JFD -- special case?
             #assert(False) # Error - missing export id
 
-    face_matches = torch.tensor(face_matches).long().T
-    edge_matches = torch.tensor(edge_matches).long().T
-    vert_matches = torch.tensor(vert_matches).long().T
+    face_matches = torch.tensor(face_matches).long().T if len(face_matches) > 0 else torch.empty((2,0)).long()
+    edge_matches = torch.tensor(edge_matches).long().T if len(edge_matches) > 0 else torch.empty((2,0)).long()
+    vert_matches = torch.tensor(vert_matches).long().T if len(vert_matches) > 0 else torch.empty((2,0)).long()
 
     data = zip_hetdata(orig_brep, var_brep)
     data.face_matches = face_matches
@@ -95,6 +95,7 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
                     data = make_match_data(zf, o_path, v_path, m_path)
                     self.preprocessed_data.append(data)
             if cache_path is not None:
+                os.makedirs(os.path.dirname(cache_path),exist_ok=True)
                 torch.save(self.preprocessed_data, cache_path)
     
     def __getitem__(self, idx):
