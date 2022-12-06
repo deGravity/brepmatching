@@ -70,8 +70,8 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     return data
 
 class BRepMatchingDataset(torch.utils.data.Dataset):
-    def __init__(self, zip_path=None, cache_path=None):
-        
+    def __init__(self, zip_path=None, cache_path=None, debug=False):
+        self.debug = debug
         do_preprocess = True
         if cache_path is not None:
             if os.path.exists(cache_path):
@@ -99,6 +99,10 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
                 torch.save(self.preprocessed_data, cache_path)
     
     def __getitem__(self, idx):
+        if self.debug:
+            data = self.preprocessed_data[idx]
+            assert len(data.face_matches[0].unique()) == len(data.face_matches[0])
+            assert len(data.face_matches[1].unique()) == len(data.face_matches[1])
         return self.preprocessed_data[idx]
     
     def __len__(self):

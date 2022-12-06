@@ -1,5 +1,5 @@
 import pytorch_lightning as pl
-from .matching import Matcher
+from brepmatching.models import PairEmbedder
 import torch
 
 class MatchingModel(pl.LightningModule):
@@ -14,26 +14,59 @@ class MatchingModel(pl.LightningModule):
 
         #use_uvnet_features: bool = False,
         temperature: float = 1.0, #temperature normalization factor for contrastive softmax
+        num_negative: int = 5
         
         ):
         super().__init__()
 
-        self.match = Matcher(
-            f_in_width,
-            l_in_width,
-            e_in_width,
-            v_in_width,
-            sbgcn_size,
-            fflayers,
-        )
-
+        self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers)
         self.temperature = temperature
+        self.num_negative = num_negative
 
         self.save_hyperparameters()
     
 
     def forward(self, data):
-        return self.match(data)
+        with torch.no_grad():
+            num_batches = len(data.left_faces_batch.unique()) #Todo: is there a better way to count batches?
+            face_batch_offsets = []
+            batch_offset = torch.tensor(0)
+            for batch in range(num_batches):
+                face_batch_offsets.append(batch_offset)
+                batch_size = (data.right_faces_batch == batch).sum()
+                batch_offset = batch_offset.clone() + batch_size
+            
+            face_match_batch_offsets = []
+            batch_offset = torch.tensor(0)
+            for batch in range(num_batches):
+                face_match_batch_offsets.append(batch_offset)
+                batch_size = (data.face_matches_batch == batch).sum()
+                batch_offset = batch_offset.clone() + batch_size
+
+            
+            face_allperms = []
+            for batch, (face_offset, face_match_offset) in enumerate(zip(face_batch_offsets, face_match_batch_offsets)):
+                perms_batch = []
+                for m in range((data.face_matches_batch == batch).sum()):
+                    match_index = m + face_match_offset
+                    perm = torch.randperm((data.right_faces_batch == batch).sum()) + face_offset
+                    perm = perm[perm != data.face_matches[1,match_index]]
+                    perms_batch.append(perm)
+                face_allperms += perms_batch
+            mincount = min([len(perm) for perm in face_allperms])
+            mincount = min(mincount, self.num_negative)
+            face_allperms = [perm[:mincount] for perm in face_allperms]
+            face_allperms = torch.stack(face_allperms)
+
+
+        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self.pair_embedder(data)
+
+        f_orig_matched = f_orig[data.face_matches[0]]
+        f_var_matched = f_var[data.face_matches[1]]
+        f_matched_sim = torch.sum(f_orig_matched * f_var_matched, dim=-1)
+
+        f_unmatched = f_var[face_allperms]
+
 
     
     def training_step(self, batch, batch_idx):

@@ -46,5 +46,6 @@ class Matcher(Module):
 
 
     def forward(self, data):
-        emb = self.pair_embedder(data)
+        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self.pair_embedder(data)
+        
 
