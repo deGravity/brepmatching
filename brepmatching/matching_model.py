@@ -5,14 +5,17 @@ import torch
 class MatchingModel(pl.LightningModule):
 
     def __init__(self,
-        f_in_width: int = 60,
+        f_in_width: int = 62,
         l_in_width: int = 38,
-        e_in_width: int = 68,
+        e_in_width: int = 72,
         v_in_width: int = 3,
         sbgcn_size: int = 64,
-        fflayers: int = 1,
-        use_uvnet_features: bool = False,
-        match_embed_dim: int = 128):
+        fflayers: int = 6,
+
+        #use_uvnet_features: bool = False,
+        temperature: float = 1.0, #temperature normalization factor for contrastive softmax
+        
+        ):
         super().__init__()
 
         self.match = Matcher(
@@ -22,17 +25,15 @@ class MatchingModel(pl.LightningModule):
             v_in_width,
             sbgcn_size,
             fflayers,
-            use_uvnet_features=use_uvnet_features,
-            match_embed_dim=match_embed_dim
         )
 
-
+        self.temperature = temperature
 
         self.save_hyperparameters()
     
 
-    def forward(self, brep1, brep2, matches=None):
-        return self.match(brep1, brep2, matches)
+    def forward(self, data):
+        return self.match(data)
 
     
     def training_step(self, batch, batch_idx):
