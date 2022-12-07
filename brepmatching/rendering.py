@@ -36,6 +36,29 @@ def look_at(point, pos, up):
     pose[:3,3] = pos
     return pose
 
+def get_corner_poses(V):
+    center = (np.min(V,axis=0) + np.max(V,axis=0))/2
+    V_centered = V - center
+    max_coord = np.abs(V_centered).max()
+
+    corners = np.array([
+        [-1.1, 1.1, -1.1],
+        [1.1, 1.1, -1.1],
+        [-1.1, 1.1, 1.1],
+        [1.1, 1.1, 1.1]
+    ]) * max_coord
+
+    camera_poses = []
+    for corner in corners:
+        camera_pose = look_at([0,0,0],corner,[0,1,0])
+        V_t = np.linalg.pinv(camera_pose).dot(
+            np.concatenate([V_centered, np.ones((len(V),1))],axis=1).T
+        )[:3].T
+        mag = 1.05 * np.abs(V_t[:,:2]).max()
+        camera_pose[:3,3] += center
+        camera_poses.append(CameraParams(camera_pose, mag))
+    return camera_poses
+
 # Gets the camera angle and magnification for a part
 # Optionall optimizes for most faces seen, or best view
 # of a particular face
@@ -174,7 +197,7 @@ def render_segmented_mesh(
     # Setup Camera
     if camera_params is None:
         camera_params = get_camera_angle(V, F, F_id, camera_opt, renderer)
-    camera = pyrender.OrthographicCamera(xmag=camera_params.mag,ymag=camera_params.mag)
+    camera = pyrender.OrthographicCamera(xmag=camera_params.mag,ymag=camera_params.mag,znear=0.001)
 
     # Setup Mesh to Render
     

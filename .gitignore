@@ -8,6 +8,7 @@ __pycache__/
 
 *.zip
 tmp/*
+data/*.pt
 
 # Distribution / packaging
 .Python
