@@ -22,7 +22,8 @@
             "args":[
                 "--tensorboard_path","C:/Users/james/Documents/research/projects/mechanical/checkpoints/matching",
                 "--name", "debug",
-                
+                "--overfit_batches","10"
+
             ]
         }
     ]

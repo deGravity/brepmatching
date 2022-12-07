@@ -15,7 +15,7 @@ class MatchingModel(pl.LightningModule):
         fflayers: int = 6,
 
         #use_uvnet_features: bool = False,
-        temperature: float = 1.0, #temperature normalization factor for contrastive softmax
+        temperature: float = 100.0, #temperature normalization factor for contrastive softmax
         num_negative: int = 5
         
         ):
@@ -77,7 +77,7 @@ class MatchingModel(pl.LightningModule):
         f_unmatched_sim = torch.sum(f_orig_unmatched * f_var_unmatched, dim=-1)
 
         f_sim = torch.cat([f_matched_sim.unsqueeze(-1), f_unmatched_sim], dim=1)
-        logits = self.softmax(f_sim)
+        logits = self.softmax(f_sim / self.temperature)
         labels = torch.zeros_like(logits)
         labels[:,0] = 1
         return self.loss(logits, labels)
