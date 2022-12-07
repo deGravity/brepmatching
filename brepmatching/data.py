@@ -2,11 +2,13 @@ import json
 import os
 from zipfile import ZipFile
 
+import numpy as np
 import pandas as pd
 import torch
 import xxhash
-from automate import Part, PartOptions, PartFeatures, part_to_graph
+from automate import Part, PartFeatures, PartOptions, part_to_graph
 from tqdm import tqdm
+from sklearn.model_selection import train_test_split
 
 from .utils import zip_hetdata
 
@@ -19,8 +21,12 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
         matches = json.load(f)
     with zf.open(orig_path, 'r') as f:
         orig_part = Part(f.read().decode('utf-8'), options)
+    if not orig_part.is_valid:
+        return None
     with zf.open(var_path, 'r') as f:
         var_part = Part(f.read().decode('utf-8'), options)
+    if not var_part.is_valid:
+        return None
     features = PartFeatures()
     if not include_meshes:
         features.mesh = False
@@ -70,12 +76,13 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     return data
 
 class BRepMatchingDataset(torch.utils.data.Dataset):
-    def __init__(self, zip_path=None, cache_path=None):
-        
+    def __init__(self, zip_path=None, cache_path=None, mode='train', seed=42, test_size=0.1, val_size=0.1):
         do_preprocess = True
         if cache_path is not None:
             if os.path.exists(cache_path):
-                self.preprocessed_data = torch.load(cache_path)
+                cached_data = torch.load(cache_path)
+                self.preprocessed_data = cached_data['preprocessed_data']
+                self.group = cached_data['group']
                 do_preprocess = False
 
         if do_preprocess:
@@ -84,7 +91,8 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
             with ZipFile(zip_path, 'r') as zf:
                 with zf.open('data/VariationData/all_variations.csv','r') as f:
                     variations = pd.read_csv(f)
-
+                orig_id_dict = dict((k,v) for v,k in enumerate(variations.ps_orig.unique()))
+                self.group = []
                 for i in tqdm(range(len(variations))):
                     variation_record = variations.iloc[i]
 
@@ -93,11 +101,28 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
                     v_path = 'data/BrepsWithReference/' + variation_record.ps_var
 
                     data = make_match_data(zf, o_path, v_path, m_path)
-                    self.preprocessed_data.append(data)
+                    if data is not None:
+                        self.group.append(orig_id_dict[variation_record.ps_orig])
+                        self.preprocessed_data.append(data)
+            self.group = torch.tensor(self.group).long()
             if cache_path is not None:
                 os.makedirs(os.path.dirname(cache_path),exist_ok=True)
-                torch.save(self.preprocessed_data, cache_path)
-    
+                cached_data = {
+                    'preprocessed_data':self.preprocessed_data,
+                    'group':self.group
+                }
+                torch.save(cached_data, cache_path)
+        
+        self.mode = mode
+        unique_groups = self.group.unique()
+        n_test = int(len(unique_groups)*test_size) if test_size < 1 else test_size
+        n_val = int(len(unique_groups)*val_size) if val_size < 1 else val_size
+        train_groups, test_groups = train_test_split(unique_groups, test_size=n_test, random_state=seed)
+        train_groups, val_groups = train_test_split(train_groups, test_size=n_val, random_state=seed)
+        groups_to_use = set((train_groups if self.mode == 'train' else test_groups if self.mode == 'test' else val_groups).tolist())
+
+        self.preprocessed_data = [self.preprocessed_data[i] for i,g in enumerate(self.group) if g.item() in groups_to_use]
+        
     def __getitem__(self, idx):
         return self.preprocessed_data[idx]
     
