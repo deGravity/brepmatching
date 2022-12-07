@@ -10,8 +10,8 @@ class PairEmbedder(torch.nn.Module):
         s_loop = 38,
         s_edge = 72,
         s_vert = 3,
+        embedding_size = 64,
         k = 6,
-        embedding_size = 64
     ):
         super().__init__()
         self.sbgcn = SBGCN(s_face, s_loop, s_edge, s_vert, embedding_size, k)

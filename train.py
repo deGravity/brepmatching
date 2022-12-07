@@ -19,13 +19,15 @@ if __name__ == '__main__':
     parser.add_argument('--no_train', action='store_true')
     parser.add_argument('--no_test', action='store_true')
 
+    parser.add_argument('--batch_size',type=int, default=16) #TODO: replace this with data module args
+
     parser = pl.Trainer.add_argparse_args(parser)
     parser = MatchingModel.add_argparse_args(parser)
 
     args = parser.parse_args()
 
     ds = BRepMatchingDataset('data/example_dataset.zip', 'tmp/example_dataset_cache.pt', debug=True)
-    dl = DataLoader(ds, batch_size=10, shuffle=True, follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'face_matches', 'edge_matches', 'vertex_matches'])
+    dl = DataLoader(ds, batch_size=args.batch_size, shuffle=True, follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'face_matches', 'edge_matches', 'vertex_matches'])
 
     model = MatchingModel.from_argparse_args(args)
     callbacks = model.get_callbacks()
