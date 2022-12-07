@@ -58,23 +58,30 @@ class MatchingModel(pl.LightningModule):
                 batch_offset = batch_offset.clone() + batch_size
 
             allperms = []
+            keepmask = torch.ones(getattr(data, topo_type + '_matches_batch').shape[0], dtype=torch.bool)
             for batch, (offset, match_offset) in enumerate(zip(batch_offsets, match_batch_offsets)):
-                perms_batch = []
-                for m in range((getattr(data, topo_type + '_matches_batch') == batch).sum()):
-                    match_index = m + match_offset
-                    perm = torch.randperm((getattr(data, 'right_' + topo_type + '_batch') == batch).sum()) + offset
-                    perm = perm[perm != getattr(data, topo_type + '_matches')[1,match_index]]
-                    perms_batch.append(perm)
-                allperms += perms_batch
+                batch_size = (getattr(data, 'right_' + topo_type + '_batch') == batch).sum()
+                match_batch_size = (getattr(data, topo_type + '_matches_batch') == batch).sum()
+                if batch_size > 1:
+                    perms_batch = []
+                    for m in range(match_batch_size):
+                        match_index = m + match_offset
+                        perm = torch.randperm(batch_size) + offset
+                        perm = perm[perm != getattr(data, topo_type + '_matches')[1,match_index]]
+                        perms_batch.append(perm)
+                    allperms += perms_batch
+                else:
+                    keepmask[match_offset:match_offset+match_batch_size] = 0
             mincount = min([len(perm) for perm in allperms])
             mincount = min(mincount, self.num_negative)
             allperms = [perm[:mincount] for perm in allperms]
             allperms = torch.stack(allperms)
-        return allperms
+        return allperms, keepmask #keepmask: mask of which matches to keep (ones belonging to batches with too few right topos are disabled)
     
-    def compute_loss(self, allperms, data, f_orig, f_var, topo_type):
-        f_orig_matched = f_orig[getattr(data, topo_type + '_matches')[0]]
-        f_var_matched = f_var[getattr(data, topo_type + '_matches')[1]]
+    def compute_loss(self, allperms, data, f_orig, f_var, topo_type, mask):
+        matches_masked = getattr(data, topo_type + '_matches')[:, mask]
+        f_orig_matched = f_orig[matches_masked[0]]
+        f_var_matched = f_var[matches_masked[1]]
         f_matched_sim = torch.sum(f_orig_matched * f_var_matched, dim=-1)
 
         f_var_unmatched = f_var[allperms]
@@ -89,13 +96,13 @@ class MatchingModel(pl.LightningModule):
     
 
     def training_step(self, data, batch_idx):
-        face_allperms = self.sample_matches(data, 'faces')
-        edge_allperms = self.sample_matches(data, 'edges')
-        vert_allperms = self.sample_matches(data, 'vertices')
+        face_allperms, faces_match_mask = self.sample_matches(data, 'faces')
+        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges')
+        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
-        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges')
-        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices')
+        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces', faces_match_mask)
+        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
+        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
         self.log('train_loss/step', loss, on_step=True, on_epoch=False)
         self.log('train_loss/epoch', loss, on_step=False, on_epoch=True)
@@ -103,13 +110,13 @@ class MatchingModel(pl.LightningModule):
 
 
     def validation_step(self, data, batch_idx):
-        face_allperms = self.sample_matches(data, 'faces')
-        edge_allperms = self.sample_matches(data, 'edges')
-        vert_allperms = self.sample_matches(data, 'vertices')
+        face_allperms, faces_match_mask = self.sample_matches(data, 'faces')
+        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges')
+        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
-        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges')
-        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices')
+        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces', faces_match_mask)
+        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
+        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
         self.log('val_loss', loss)
 
@@ -119,13 +126,13 @@ class MatchingModel(pl.LightningModule):
 
 
     def test_step(self, data, batch_idx):
-        face_allperms = self.sample_matches(data, 'faces')
-        edge_allperms = self.sample_matches(data, 'edges')
-        vert_allperms = self.sample_matches(data, 'vertices')
+        face_allperms, faces_match_mask = self.sample_matches(data, 'faces')
+        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges')
+        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
-        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges')
-        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices')
+        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces', faces_match_mask)
+        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
+        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
         self.log('test_loss', loss)
 
