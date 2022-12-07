@@ -11,6 +11,19 @@
             "program": "${workspaceFolder}/test.py",
             "console": "integratedTerminal",
             "justMyCode": true
+        },
+        {
+            "name": "test training",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args":[
+                "--tensorboard_path","C:/Users/james/Documents/research/projects/mechanical/checkpoints/matching",
+                "--name", "debug",
+                
+            ]
         }
     ]
 }

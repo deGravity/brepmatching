@@ -1,6 +1,8 @@
 import pytorch_lightning as pl
 from brepmatching.models import PairEmbedder
 import torch
+from torch.nn import CrossEntropyLoss, LogSoftmax
+
 
 class MatchingModel(pl.LightningModule):
 
@@ -23,10 +25,16 @@ class MatchingModel(pl.LightningModule):
         self.temperature = temperature
         self.num_negative = num_negative
 
+        self.loss = CrossEntropyLoss()
+        self.softmax = LogSoftmax(dim=1)
+
         self.save_hyperparameters()
     
 
     def forward(self, data):
+        return self.pair_embedder(data)
+
+    def sample_matches(self, data):
         with torch.no_grad():
             num_batches = len(data.left_faces_batch.unique()) #Todo: is there a better way to count batches?
             face_batch_offsets = []
@@ -57,34 +65,48 @@ class MatchingModel(pl.LightningModule):
             mincount = min(mincount, self.num_negative)
             face_allperms = [perm[:mincount] for perm in face_allperms]
             face_allperms = torch.stack(face_allperms)
-
-
-        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self.pair_embedder(data)
-
+        return face_allperms
+    
+    def compute_loss(self, face_allperms, data, f_orig, f_var):
         f_orig_matched = f_orig[data.face_matches[0]]
         f_var_matched = f_var[data.face_matches[1]]
         f_matched_sim = torch.sum(f_orig_matched * f_var_matched, dim=-1)
 
-        f_unmatched = f_var[face_allperms]
+        f_var_unmatched = f_var[face_allperms]
+        f_orig_unmatched = f_orig_matched.expand(f_var_unmatched.shape[1], f_var_unmatched.shape[0], f_var_unmatched.shape[2]).transpose(0, 1)
+        f_unmatched_sim = torch.sum(f_orig_unmatched * f_var_unmatched, dim=-1)
 
-
+        f_sim = torch.cat([f_matched_sim.unsqueeze(-1), f_unmatched_sim], dim=1)
+        logits = self.softmax(f_sim)
+        labels = torch.zeros_like(logits)
+        labels[:,0] = 1
+        return self.loss(logits, labels)
     
-    def training_step(self, batch, batch_idx):
-        brep1, brep2, matches = batch
-        fm, em, vm = self(batch)
-        loss = self.compute_loss(fm, em, vm)
+
+    def training_step(self, data, batch_idx):
+        face_allperms = self.sample_matches(data)
+        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
+        loss = self.compute_loss(face_allperms, data, f_orig, f_var)
+        self.log('train_loss/step', loss, on_step=True, on_epoch=False)
+        self.log('train_loss/epoch', loss, on_step=False, on_epoch=True)
         return loss
 
-    def validation_step(self, batch, batch_idx):
-        pass
+
+    def validation_step(self, data, batch_idx):
+        face_allperms = self.sample_matches(data)
+        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
+        loss = self.compute_loss(face_allperms, data, f_orig, f_var)
+        self.log('val_loss', loss)
+
+
+    def test_step(self, data, batch_idx):
+        face_allperms = self.sample_matches(data)
+        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
+        loss = self.compute_loss(face_allperms, data, f_orig, f_var)
+        self.log('test_loss', loss)
+
+
     
-
-    def test_step(self, batch, batch_idx):
-        pass
-
-
-    def compute_loss(self, fm, em, vm, labels):
-        return 0
 
         
     def log_metrics(self, batch, preds, mode):
