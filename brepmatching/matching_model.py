@@ -37,42 +37,41 @@ class MatchingModel(pl.LightningModule):
     def forward(self, data):
         return self.pair_embedder(data)
 
-    def sample_matches(self, data):
+    def sample_matches(self, data, topo_type):
         with torch.no_grad():
-            num_batches = len(data.left_faces_batch.unique()) #Todo: is there a better way to count batches?
-            face_batch_offsets = []
+            num_batches = len(getattr(data, 'left_' + topo_type + '_batch').unique()) #Todo: is there a better way to count batches?
+            batch_offsets = []
             batch_offset = torch.tensor(0)
             for batch in range(num_batches):
-                face_batch_offsets.append(batch_offset)
-                batch_size = (data.right_faces_batch == batch).sum()
+                batch_offsets.append(batch_offset)
+                batch_size = (getattr(data, 'right_' + topo_type + '_batch') == batch).sum()
                 batch_offset = batch_offset.clone() + batch_size
             
-            face_match_batch_offsets = []
+            match_batch_offsets = []
             batch_offset = torch.tensor(0)
             for batch in range(num_batches):
-                face_match_batch_offsets.append(batch_offset)
-                batch_size = (data.face_matches_batch == batch).sum()
+                match_batch_offsets.append(batch_offset)
+                batch_size = (getattr(data, topo_type + '_matches_batch') == batch).sum()
                 batch_offset = batch_offset.clone() + batch_size
 
-            
-            face_allperms = []
-            for batch, (face_offset, face_match_offset) in enumerate(zip(face_batch_offsets, face_match_batch_offsets)):
+            allperms = []
+            for batch, (offset, match_offset) in enumerate(zip(batch_offsets, match_batch_offsets)):
                 perms_batch = []
-                for m in range((data.face_matches_batch == batch).sum()):
-                    match_index = m + face_match_offset
-                    perm = torch.randperm((data.right_faces_batch == batch).sum()) + face_offset
-                    perm = perm[perm != data.face_matches[1,match_index]]
+                for m in range((getattr(data, topo_type + '_matches_batch') == batch).sum()):
+                    match_index = m + match_offset
+                    perm = torch.randperm((getattr(data, 'right_' + topo_type + '_batch') == batch).sum()) + offset
+                    perm = perm[perm != getattr(data, topo_type + '_matches')[1,match_index]]
                     perms_batch.append(perm)
-                face_allperms += perms_batch
-            mincount = min([len(perm) for perm in face_allperms])
+                allperms += perms_batch
+            mincount = min([len(perm) for perm in allperms])
             mincount = min(mincount, self.num_negative)
-            face_allperms = [perm[:mincount] for perm in face_allperms]
-            face_allperms = torch.stack(face_allperms)
-        return face_allperms
+            allperms = [perm[:mincount] for perm in allperms]
+            allperms = torch.stack(allperms)
+        return allperms
     
     def compute_loss(self, face_allperms, data, f_orig, f_var):
-        f_orig_matched = f_orig[data.face_matches[0]]
-        f_var_matched = f_var[data.face_matches[1]]
+        f_orig_matched = f_orig[data.faces_matches[0]]
+        f_var_matched = f_var[data.faces_matches[1]]
         f_matched_sim = torch.sum(f_orig_matched * f_var_matched, dim=-1)
 
         f_var_unmatched = f_var[face_allperms]
@@ -87,7 +86,7 @@ class MatchingModel(pl.LightningModule):
     
 
     def training_step(self, data, batch_idx):
-        face_allperms = self.sample_matches(data)
+        face_allperms = self.sample_matches(data, 'faces')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
         loss = self.compute_loss(face_allperms, data, f_orig, f_var)
         self.log('train_loss/step', loss, on_step=True, on_epoch=False)
@@ -96,17 +95,17 @@ class MatchingModel(pl.LightningModule):
 
 
     def validation_step(self, data, batch_idx):
-        face_allperms = self.sample_matches(data)
+        face_allperms = self.sample_matches(data, 'faces')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
         loss = self.compute_loss(face_allperms, data, f_orig, f_var)
         self.log('val_loss', loss)
 
-        f_orig_match = f_orig[data.face_matches[0]]
+        f_orig_match = f_orig[data.faces_matches[0]]
         matches = []
         for m in range(f_orig_match.shape[0]):
             maxdist = -torch.inf
             maxind = -1
-            batch_right_face_inds = (data.face_matches_batch[m] == data.right_faces_batch).nonzero().flatten()
+            batch_right_face_inds = (data.faces_matches_batch[m] == data.right_faces_batch).nonzero().flatten()
             for j in batch_right_face_inds:
                 dist = torch.dot(f_orig_match[m], f_var[j])
                 if dist > maxdist:
@@ -114,13 +113,13 @@ class MatchingModel(pl.LightningModule):
                     maxind = j
             matches.append(maxind)
         matches = torch.tensor(matches)
-        acc = (matches == data.face_matches[1]).sum() / len(matches)
+        acc = (matches == data.faces_matches[1]).sum() / len(matches)
         self.accuracy(acc)
         self.log('accuracy', acc)
 
 
     def test_step(self, data, batch_idx):
-        face_allperms = self.sample_matches(data)
+        face_allperms = self.sample_matches(data, 'faces')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
         loss = self.compute_loss(face_allperms, data, f_orig, f_var)
         self.log('test_loss', loss)

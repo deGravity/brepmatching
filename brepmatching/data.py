@@ -62,16 +62,16 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     vert_matches = torch.tensor(vert_matches).long().T if len(vert_matches) > 0 else torch.empty((2,0)).long()
 
     data = zip_hetdata(orig_brep, var_brep)
-    data.face_matches = face_matches
-    data.__edge_sets__['face_matches'] = ['left_faces', 'right_faces']
-    data.edge_matches = edge_matches
-    data.__edge_sets__['edge_matches'] = ['left_edges', 'right_edges']
-    data.vertex_matches = vert_matches
-    data.__edge_sets__['vertex_matches'] = ['left_vertices', 'right_vertices']
+    data.faces_matches = face_matches
+    data.__edge_sets__['faces_matches'] = ['left_faces', 'right_faces']
+    data.edges_matches = edge_matches
+    data.__edge_sets__['edges_matches'] = ['left_edges', 'right_edges']
+    data.vertices_matches = vert_matches
+    data.__edge_sets__['vertices_matches'] = ['left_vertices', 'right_vertices']
 
     return data
 
-follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'face_matches', 'edge_matches', 'vertex_matches']
+follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'faces_matches', 'edges_matches', 'vertices_matches']
 class BRepMatchingDataset(torch.utils.data.Dataset):
     def __init__(self, zip_path=None, cache_path=None, debug=False):
         self.debug = debug
@@ -104,8 +104,8 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         if self.debug:
             data = self.preprocessed_data[idx]
-            assert len(data.face_matches[0].unique()) == len(data.face_matches[0])
-            assert len(data.face_matches[1].unique()) == len(data.face_matches[1])
+            assert len(data.faces_matches[0].unique()) == len(data.faces_matches[0])
+            assert len(data.faces_matches[1].unique()) == len(data.faces_matches[1])
         return self.preprocessed_data[idx]
     
     def __len__(self):

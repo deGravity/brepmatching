@@ -25,7 +25,7 @@
                 "--batch_size","10",
                 "--check_val_every_n_epoch","10",
                 "--zip_path","data/example_dataset.zip",
-                "--cache_path","tmp/example_dataset_cache.pt",
+                "--cache_path","tmp/example_dataset_cache2.pt",
                 "--num_workers","1",
                 "--shuffle","false",
                 "--limit_train_batches","1",
@@ -45,7 +45,7 @@
                 "--name", "debug",
                 "--batch_size","16",
                 "--zip_path","data/example_dataset.zip",
-                "--cache_path","tmp/example_dataset_cache.pt",
+                "--cache_path","tmp/example_dataset_cache2.pt",
                 "--num_workers","1",
                 "--shuffle","false",
             ]
