@@ -43,10 +43,10 @@
             "justMyCode": false,
             "args":[
                 "--tensorboard_path","C:/Users/james/Documents/research/projects/mechanical/checkpoints/matching",
-                "--name", "debug",
+                "--name", "debug_split",
                 "--batch_size","16",
                 "--zip_path","data/example_dataset.zip",
-                "--cache_path","tmp/example_dataset_cache2.pt",
+                "--cache_path","tmp/example_dataset_cache_split.pt",
                 "--num_workers","1",
                 "--shuffle","false",
                 "--debug_data"

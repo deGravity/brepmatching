@@ -39,9 +39,9 @@ def render_predictions(
     right_F_to_faces = data.right_F_to_faces
     right_E_to_edges = data.right_E_to_edges
 
-    face_matches = data.face_matches
-    edge_matches = data.edge_matches
-    vertex_matches = data.vertex_matches
+    face_matches = data.faces_matches
+    edge_matches = data.edges_matches
+    vertex_matches = data.vertices_matches
 
     right_num_faces = data.right_faces.shape[0]
     right_num_edges = data.right_edges.shape[0]
