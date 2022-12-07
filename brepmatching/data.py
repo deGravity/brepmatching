@@ -9,6 +9,8 @@ from automate import Part, PartOptions, PartFeatures, part_to_graph
 from tqdm import tqdm
 
 from .utils import zip_hetdata
+import pytorch_lightning as pl
+from torch_geometric.loader import DataLoader
 
 
 def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
@@ -69,6 +71,7 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
 
     return data
 
+follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'face_matches', 'edge_matches', 'vertex_matches']
 class BRepMatchingDataset(torch.utils.data.Dataset):
     def __init__(self, zip_path=None, cache_path=None, debug=False):
         self.debug = debug
@@ -107,3 +110,38 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
     
     def __len__(self):
         return len(self.preprocessed_data)
+
+
+
+class BRepMatchingDataModule(pl.LightningDataModule):
+    def __init__(self, 
+    batch_size: int = 16, 
+    num_workers: int = 10, 
+    persistent_workers: bool = True,
+    shuffle: bool = True, 
+    zip_path: str = None, 
+    cache_path: str = None, 
+    debug: bool = False):
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.persistent_workers = persistent_workers
+        self.shuffle = shuffle
+        self.zip_path = zip_path
+        self.cache_path = cache_path
+        self.debug = debug
+
+        self.prepare_data_per_node = False #workaround to seeming bug in lightning
+
+    def setup(self, **kwargs):
+        super().__init__()
+        self.ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug)
+        #TODO: actually have separate data for train/test/val
+
+    def train_dataloader(self):
+        return DataLoader(self.ds, batch_size=self.batch_size, num_workers=self.num_workers,shuffle=self.shuffle, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
+
+    def val_dataloader(self):
+        return DataLoader(self.ds, batch_size=self.batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
+
+    def test_dataloader(self):
+        return DataLoader(self.ds, batch_size=self.batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)

@@ -2,6 +2,7 @@ import pytorch_lightning as pl
 from brepmatching.models import PairEmbedder
 import torch
 from torch.nn import CrossEntropyLoss, LogSoftmax
+from torchmetrics import MeanMetric
 
 
 class MatchingModel(pl.LightningModule):
@@ -27,6 +28,8 @@ class MatchingModel(pl.LightningModule):
 
         self.loss = CrossEntropyLoss()
         self.softmax = LogSoftmax(dim=1)
+
+        self.accuracy = MeanMetric()
 
         self.save_hyperparameters()
     
@@ -97,6 +100,22 @@ class MatchingModel(pl.LightningModule):
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
         loss = self.compute_loss(face_allperms, data, f_orig, f_var)
         self.log('val_loss', loss)
+
+        f_orig_match = f_orig[data.face_matches[0]]
+        matches = []
+        for m in range(f_orig_match.shape[0]):
+            mindist = torch.inf
+            minind = -1
+            for j in range(f_var.shape[0]):
+                dist = torch.dot(f_orig_match[m], f_var[j])
+                if dist < mindist:
+                    mindist = dist
+                    minind = j
+            matches.append(minind)
+        matches = torch.tensor(matches)
+        acc = (matches == data.face_matches[1]).sum() / len(matches)
+        self.accuracy(acc)
+        self.log('accuracy', acc)
 
 
     def test_step(self, data, batch_idx):
