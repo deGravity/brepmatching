@@ -29,7 +29,10 @@ class MatchingModel(pl.LightningModule):
         self.loss = CrossEntropyLoss()
         self.softmax = LogSoftmax(dim=1)
 
-        self.accuracy = MeanMetric()
+        # self.faces_accuracy = MeanMetric()
+        # self.edges_accuracy = MeanMetric()
+        # self.vertices_accuracy = MeanMetric()
+        # self.accuracy = MeanMetric()
 
         self.save_hyperparameters()
     
@@ -87,8 +90,13 @@ class MatchingModel(pl.LightningModule):
 
     def training_step(self, data, batch_idx):
         face_allperms = self.sample_matches(data, 'faces')
+        edge_allperms = self.sample_matches(data, 'edges')
+        vert_allperms = self.sample_matches(data, 'vertices')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
+        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
+        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges')
+        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices')
+        loss = f_loss + e_loss + v_loss
         self.log('train_loss/step', loss, on_step=True, on_epoch=False)
         self.log('train_loss/epoch', loss, on_step=False, on_epoch=True)
         return loss
@@ -96,40 +104,50 @@ class MatchingModel(pl.LightningModule):
 
     def validation_step(self, data, batch_idx):
         face_allperms = self.sample_matches(data, 'faces')
+        edge_allperms = self.sample_matches(data, 'edges')
+        vert_allperms = self.sample_matches(data, 'vertices')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
+        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
+        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges')
+        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices')
+        loss = f_loss + e_loss + v_loss
         self.log('val_loss', loss)
 
-        f_orig_match = f_orig[data.faces_matches[0]]
+        f_acc = self.log_metrics(data, f_orig, f_var, 'faces')
+        e_acc = self.log_metrics(data, e_orig, e_var, 'edges')
+        v_acc = self.log_metrics(data, v_orig, v_var, 'vertices')
+
+
+    def test_step(self, data, batch_idx):
+        face_allperms = self.sample_matches(data, 'faces')
+        edge_allperms = self.sample_matches(data, 'edges')
+        vert_allperms = self.sample_matches(data, 'vertices')
+        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
+        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
+        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges')
+        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices')
+        loss = f_loss + e_loss + v_loss
+        self.log('test_loss', loss)
+
+
+    
+    def log_metrics(self, data, orig_emb, var_emb, topo_type):
+        orig_match = orig_emb[getattr(data, topo_type + '_matches')[0]]
         matches = []
-        for m in range(f_orig_match.shape[0]):
+        for m in range(orig_match.shape[0]):
             maxdist = -torch.inf
             maxind = -1
-            batch_right_face_inds = (data.faces_matches_batch[m] == data.right_faces_batch).nonzero().flatten()
-            for j in batch_right_face_inds:
-                dist = torch.dot(f_orig_match[m], f_var[j])
+            batch_right_inds = (getattr(data, topo_type + '_matches_batch')[m] == getattr(data, 'right_'+topo_type+'_batch')).nonzero().flatten()
+            for j in batch_right_inds:
+                dist = torch.dot(orig_match[m], var_emb[j])
                 if dist > maxdist:
                     maxdist = dist
                     maxind = j
             matches.append(maxind)
         matches = torch.tensor(matches)
-        acc = (matches == data.faces_matches[1]).sum() / len(matches)
-        self.accuracy(acc)
-        self.log('accuracy', acc)
-
-
-    def test_step(self, data, batch_idx):
-        face_allperms = self.sample_matches(data, 'faces')
-        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
-        self.log('test_loss', loss)
-
-
-    
-
-        
-    def log_metrics(self, batch, preds, mode):
-        pass
+        acc = (matches == getattr(data, topo_type + '_matches')[1]).sum() / len(matches)
+        self.log('accuracy/' + topo_type, acc)
+        return acc
 
 
     def get_callbacks(self):
