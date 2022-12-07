@@ -13,7 +13,7 @@
             "justMyCode": true
         },
         {
-            "name": "test training",
+            "name": "test training (overfit)",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/train.py",
@@ -31,6 +31,23 @@
                 "--limit_train_batches","1",
                 "--limit_val_batches","1",
 
+            ]
+        },
+        {
+            "name": "test training",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args":[
+                "--tensorboard_path","C:/Users/james/Documents/research/projects/mechanical/checkpoints/matching",
+                "--name", "debug",
+                "--batch_size","16",
+                "--zip_path","data/example_dataset.zip",
+                "--cache_path","tmp/example_dataset_cache.pt",
+                "--num_workers","1",
+                "--shuffle","false",
             ]
         }
     ]
