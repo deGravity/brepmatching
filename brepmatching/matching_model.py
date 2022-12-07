@@ -106,7 +106,8 @@ class MatchingModel(pl.LightningModule):
         for m in range(f_orig_match.shape[0]):
             mindist = torch.inf
             minind = -1
-            for j in range(f_var.shape[0]):
+            batch_right_face_inds = (data.face_matches_batch[m] == data.right_faces_batch).nonzero().flatten()
+            for j in batch_right_face_inds:
                 dist = torch.dot(f_orig_match[m], f_var[j])
                 if dist < mindist:
                     mindist = dist

@@ -22,11 +22,14 @@
             "args":[
                 "--tensorboard_path","C:/Users/james/Documents/research/projects/mechanical/checkpoints/matching",
                 "--name", "debug",
-                "--overfit_batches","1",
                 "--batch_size","10",
+                "--check_val_every_n_epoch","10",
                 "--zip_path","data/example_dataset.zip",
                 "--cache_path","tmp/example_dataset_cache.pt",
-                "--num_workers","1"
+                "--num_workers","1",
+                "--shuffle","false",
+                "--limit_train_batches","1",
+                "--limit_val_batches","1",
 
             ]
         }
