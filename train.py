@@ -13,7 +13,6 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_path', type=str, default=None)
     parser.add_argument('--checkpoint_path2', type=str, default=None)
     parser.add_argument('--name', type=str, default='unnamed')
-    parser.add_argument('--debug', action='store_true')
     parser.add_argument('--resume_version', type=int, default=None)
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--no_train', action='store_true')

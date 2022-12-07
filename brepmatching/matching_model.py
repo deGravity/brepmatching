@@ -72,12 +72,12 @@ class MatchingModel(pl.LightningModule):
             allperms = torch.stack(allperms)
         return allperms
     
-    def compute_loss(self, face_allperms, data, f_orig, f_var, topo_type):
+    def compute_loss(self, allperms, data, f_orig, f_var, topo_type):
         f_orig_matched = f_orig[getattr(data, topo_type + '_matches')[0]]
         f_var_matched = f_var[getattr(data, topo_type + '_matches')[1]]
         f_matched_sim = torch.sum(f_orig_matched * f_var_matched, dim=-1)
 
-        f_var_unmatched = f_var[face_allperms]
+        f_var_unmatched = f_var[allperms]
         f_orig_unmatched = f_orig_matched.expand(f_var_unmatched.shape[1], f_var_unmatched.shape[0], f_var_unmatched.shape[2]).transpose(0, 1)
         f_unmatched_sim = torch.sum(f_orig_unmatched * f_var_unmatched, dim=-1)
 

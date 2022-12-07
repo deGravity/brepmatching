@@ -121,14 +121,14 @@ class BRepMatchingDataModule(pl.LightningDataModule):
     shuffle: bool = True, 
     zip_path: str = None, 
     cache_path: str = None, 
-    debug: bool = False):
+    debug_data: bool = False):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.persistent_workers = persistent_workers
         self.shuffle = shuffle
         self.zip_path = zip_path
         self.cache_path = cache_path
-        self.debug = debug
+        self.debug = debug_data
 
         self.prepare_data_per_node = False #workaround to seeming bug in lightning
 

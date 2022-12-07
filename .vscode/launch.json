@@ -30,6 +30,7 @@
                 "--shuffle","false",
                 "--limit_train_batches","1",
                 "--limit_val_batches","1",
+                "--debug_data"
 
             ]
         },
@@ -48,6 +49,7 @@
                 "--cache_path","tmp/example_dataset_cache2.pt",
                 "--num_workers","1",
                 "--shuffle","false",
+                "--debug_data"
             ]
         }
     ]
