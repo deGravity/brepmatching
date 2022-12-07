@@ -104,15 +104,15 @@ class MatchingModel(pl.LightningModule):
         f_orig_match = f_orig[data.face_matches[0]]
         matches = []
         for m in range(f_orig_match.shape[0]):
-            mindist = torch.inf
-            minind = -1
+            maxdist = -torch.inf
+            maxind = -1
             batch_right_face_inds = (data.face_matches_batch[m] == data.right_faces_batch).nonzero().flatten()
             for j in batch_right_face_inds:
                 dist = torch.dot(f_orig_match[m], f_var[j])
-                if dist < mindist:
-                    mindist = dist
-                    minind = j
-            matches.append(minind)
+                if dist > maxdist:
+                    maxdist = dist
+                    maxind = j
+            matches.append(maxind)
         matches = torch.tensor(matches)
         acc = (matches == data.face_matches[1]).sum() / len(matches)
         self.accuracy(acc)
