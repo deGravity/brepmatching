@@ -69,9 +69,9 @@ class MatchingModel(pl.LightningModule):
             allperms = torch.stack(allperms)
         return allperms
     
-    def compute_loss(self, face_allperms, data, f_orig, f_var):
-        f_orig_matched = f_orig[data.faces_matches[0]]
-        f_var_matched = f_var[data.faces_matches[1]]
+    def compute_loss(self, face_allperms, data, f_orig, f_var, topo_type):
+        f_orig_matched = f_orig[getattr(data, topo_type + '_matches')[0]]
+        f_var_matched = f_var[getattr(data, topo_type + '_matches')[1]]
         f_matched_sim = torch.sum(f_orig_matched * f_var_matched, dim=-1)
 
         f_var_unmatched = f_var[face_allperms]
@@ -88,7 +88,7 @@ class MatchingModel(pl.LightningModule):
     def training_step(self, data, batch_idx):
         face_allperms = self.sample_matches(data, 'faces')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        loss = self.compute_loss(face_allperms, data, f_orig, f_var)
+        loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
         self.log('train_loss/step', loss, on_step=True, on_epoch=False)
         self.log('train_loss/epoch', loss, on_step=False, on_epoch=True)
         return loss
@@ -97,7 +97,7 @@ class MatchingModel(pl.LightningModule):
     def validation_step(self, data, batch_idx):
         face_allperms = self.sample_matches(data, 'faces')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        loss = self.compute_loss(face_allperms, data, f_orig, f_var)
+        loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
         self.log('val_loss', loss)
 
         f_orig_match = f_orig[data.faces_matches[0]]
@@ -121,7 +121,7 @@ class MatchingModel(pl.LightningModule):
     def test_step(self, data, batch_idx):
         face_allperms = self.sample_matches(data, 'faces')
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        loss = self.compute_loss(face_allperms, data, f_orig, f_var)
+        loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces')
         self.log('test_loss', loss)
 
 
