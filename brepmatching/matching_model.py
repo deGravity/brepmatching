@@ -42,7 +42,7 @@ class MatchingModel(pl.LightningModule):
 
     def sample_matches(self, data, topo_type):
         with torch.no_grad():
-            num_batches = len(getattr(data, 'left_' + topo_type + '_batch').unique()) #Todo: is there a better way to count batches?
+            num_batches = getattr(data, 'left_faces_batch')[-1]+1 #Todo: is there a better way to count batches?
             batch_offsets = []
             batch_offset = torch.tensor(0)
             for batch in range(num_batches):
