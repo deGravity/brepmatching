@@ -40,7 +40,7 @@ class MatchingModel(pl.LightningModule):
     def forward(self, data):
         return self.pair_embedder(data)
 
-    def sample_matches(self, data, topo_type):
+    def sample_matches(self, data, topo_type, device='cuda'):
         with torch.no_grad():
             num_batches = getattr(data, 'left_faces_batch')[-1]+1 #Todo: is there a better way to count batches?
             batch_offsets = []
@@ -66,7 +66,7 @@ class MatchingModel(pl.LightningModule):
                     perms_batch = []
                     for m in range(match_batch_size):
                         match_index = m + match_offset
-                        perm = torch.randperm(batch_size) + offset
+                        perm = torch.randperm(batch_size, device=device) + offset
                         perm = perm[perm != getattr(data, topo_type + '_matches')[1,match_index]]
                         perms_batch.append(perm)
                     allperms += perms_batch
@@ -96,9 +96,9 @@ class MatchingModel(pl.LightningModule):
     
 
     def training_step(self, data, batch_idx):
-        face_allperms, faces_match_mask = self.sample_matches(data, 'faces')
-        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges')
-        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices')
+        face_allperms, faces_match_mask = self.sample_matches(data, 'faces', device=data.left_faces.device)
+        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges', device=data.left_faces.device)
+        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices', device=data.left_faces.device)
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
         f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces', faces_match_mask)
         e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
@@ -110,9 +110,9 @@ class MatchingModel(pl.LightningModule):
 
 
     def validation_step(self, data, batch_idx):
-        face_allperms, faces_match_mask = self.sample_matches(data, 'faces')
-        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges')
-        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices')
+        face_allperms, faces_match_mask = self.sample_matches(data, 'faces', device=data.left_faces.device)
+        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges', device=data.left_faces.device)
+        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices', device=data.left_faces.device)
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
         f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces', faces_match_mask)
         e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
@@ -126,9 +126,9 @@ class MatchingModel(pl.LightningModule):
 
 
     def test_step(self, data, batch_idx):
-        face_allperms, faces_match_mask = self.sample_matches(data, 'faces')
-        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges')
-        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices')
+        face_allperms, faces_match_mask = self.sample_matches(data, 'faces', device=data.left_faces.device)
+        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges', device=data.left_faces.device)
+        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices', device=data.left_faces.device)
         (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
         f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces', faces_match_mask)
         e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
@@ -151,7 +151,7 @@ class MatchingModel(pl.LightningModule):
                     maxdist = dist
                     maxind = j
             matches.append(maxind)
-        matches = torch.tensor(matches)
+        matches = torch.tensor(matches, device=data.left_faces.device)
         acc = (matches == getattr(data, topo_type + '_matches')[1]).sum() / len(matches)
         self.log('accuracy/' + topo_type, acc)
         return acc
