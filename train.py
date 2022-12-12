@@ -4,9 +4,21 @@ from brepmatching.matching_model import MatchingModel
 from pytorch_lightning.loggers import TensorBoardLogger
 from brepmatching.data import BRepMatchingDataModule
 from torch_geometric.loader import DataLoader
+import sys
+
+
+def fix_file_descriptors():
+    # When run in a tmux environment, the file_descriptor strategy can run out
+    # of file handles quickly unless you reset the file handle limit
+    if sys.platform == "linux" or sys.platform == "linux2":
+        import resource
+        from torch.multiprocessing import set_sharing_strategy
+        set_sharing_strategy("file_descriptor")
+        resource.setrlimit(resource.RLIMIT_NOFILE, (100_000, 100_000))
 
 
 if __name__ == '__main__':
+    fix_file_descriptors()
     parser = ArgumentParser(allow_abbrev=False, conflict_handler='resolve')
 
     parser.add_argument('--tensorboard_path', type=str, default='.')
