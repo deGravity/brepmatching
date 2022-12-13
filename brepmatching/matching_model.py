@@ -45,7 +45,7 @@ class MatchingModel(pl.LightningModule):
 
     def sample_matches(self, data, topo_type, device='cuda'):
         with torch.no_grad():
-            num_batches = getattr(data, 'left_faces_batch')[-1]+1 #Todo: is there a better way to count batches?
+            num_batches = self.count_batches(data)
             batch_offsets = []
             batch_offset = torch.tensor(0)
             for batch in range(num_batches):
@@ -96,6 +96,10 @@ class MatchingModel(pl.LightningModule):
         labels = torch.zeros_like(logits)
         labels[:,0] = 1
         return self.loss(logits, labels)
+
+    
+    def count_batches(self, data):
+        return data.left_faces_batch[-1]+1 #Todo: is there a better way to count batches?
     
 
     def training_step(self, data, batch_idx):
@@ -107,8 +111,10 @@ class MatchingModel(pl.LightningModule):
         e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
         v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
-        self.log('train_loss/step', loss, on_step=True, on_epoch=False)
-        self.log('train_loss/epoch', loss, on_step=False, on_epoch=True)
+
+        batch_size=self.count_batches(data)
+        self.log('train_loss/step', loss, on_step=True, on_epoch=False, batch_size=batch_size)
+        self.log('train_loss/epoch', loss, on_step=False, on_epoch=True, batch_size=batch_size)
         return loss
 
 
@@ -121,7 +127,7 @@ class MatchingModel(pl.LightningModule):
         e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
         v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
-        self.log('val_loss', loss)
+        self.log('val_loss', loss, batch_size=self.count_batches(data))
 
         #with profile(activities=[
         #        ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
@@ -142,14 +148,14 @@ class MatchingModel(pl.LightningModule):
         e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
         v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
-        self.log('test_loss', loss)
+        self.log('test_loss', loss, batch_size=self.count_batches(data))
 
 
     
     def log_metrics(self, data, orig_emb, var_emb, topo_type):
         orig_emb_match = orig_emb[getattr(data, topo_type + '_matches')[0]]
 
-        num_batches = getattr(data, 'left_faces_batch')[-1]+1
+        num_batches = self.count_batches(data)
         batch_right_inds = []
         batch_right_feats = []
         for j in range(num_batches):
@@ -167,7 +173,7 @@ class MatchingModel(pl.LightningModule):
 
         matches = torch.stack(matches)
         acc = (matches == getattr(data, topo_type + '_matches')[1]).sum() / len(matches)
-        self.log('accuracy/' + topo_type, acc)
+        self.log('accuracy/' + topo_type, acc, batch_size = self.count_batches(data))
         return acc
 
 
