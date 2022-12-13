@@ -151,22 +151,21 @@ class MatchingModel(pl.LightningModule):
 
         num_batches = getattr(data, 'left_faces_batch')[-1]+1
         batch_right_inds = []
+        batch_right_feats = []
         for j in range(num_batches):
             inds = (getattr(data, 'right_'+topo_type+'_batch') == j).nonzero().flatten()
             batch_right_inds.append(inds)
+            batch_right_feats.append(var_emb[inds].T)
 
         matches = []
         for m in range(orig_emb_match.shape[0]):
             curr_batch = getattr(data, topo_type + '_matches_batch')[m]
-            maxdist = -torch.inf
-            maxind = -1
-            for j in batch_right_inds[curr_batch]:
-                dist = torch.dot(orig_emb_match[m], var_emb[j])
-                if dist > maxdist:
-                    maxdist = dist
-                    maxind = j
-            matches.append(maxind)
-        matches = torch.tensor(matches, device=data.left_faces.device)
+
+            dists =  orig_emb_match[m] @ batch_right_feats[curr_batch]
+            maxind = torch.argmax(dists)
+            matches.append(batch_right_inds[curr_batch][maxind])
+
+        matches = torch.stack(matches)
         acc = (matches == getattr(data, topo_type + '_matches')[1]).sum() / len(matches)
         self.log('accuracy/' + topo_type, acc)
         return acc
