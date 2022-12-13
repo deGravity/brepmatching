@@ -4,6 +4,9 @@ import torch
 from torch.nn import CrossEntropyLoss, LogSoftmax
 from torchmetrics import MeanMetric
 
+from torch.profiler import profile, record_function, ProfilerActivity
+
+
 
 class MatchingModel(pl.LightningModule):
 
@@ -120,9 +123,14 @@ class MatchingModel(pl.LightningModule):
         loss = f_loss + e_loss + v_loss
         self.log('val_loss', loss)
 
+        #with profile(activities=[
+        #        ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+        #    with record_function("model_inference"):
         f_acc = self.log_metrics(data, f_orig, f_var, 'faces')
         e_acc = self.log_metrics(data, e_orig, e_var, 'edges')
         v_acc = self.log_metrics(data, v_orig, v_var, 'vertices')
+    
+        #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
 
     def test_step(self, data, batch_idx):
@@ -139,14 +147,21 @@ class MatchingModel(pl.LightningModule):
 
     
     def log_metrics(self, data, orig_emb, var_emb, topo_type):
-        orig_match = orig_emb[getattr(data, topo_type + '_matches')[0]]
+        orig_emb_match = orig_emb[getattr(data, topo_type + '_matches')[0]]
+
+        num_batches = getattr(data, 'left_faces_batch')[-1]+1
+        batch_right_inds = []
+        for j in range(num_batches):
+            inds = (getattr(data, 'right_'+topo_type+'_batch') == j).nonzero().flatten()
+            batch_right_inds.append(inds)
+
         matches = []
-        for m in range(orig_match.shape[0]):
+        for m in range(orig_emb_match.shape[0]):
+            curr_batch = getattr(data, topo_type + '_matches_batch')[m]
             maxdist = -torch.inf
             maxind = -1
-            batch_right_inds = (getattr(data, topo_type + '_matches_batch')[m] == getattr(data, 'right_'+topo_type+'_batch')).nonzero().flatten()
-            for j in batch_right_inds:
-                dist = torch.dot(orig_match[m], var_emb[j])
+            for j in batch_right_inds[curr_batch]:
+                dist = torch.dot(orig_emb_match[m], var_emb[j])
                 if dist > maxdist:
                     maxdist = dist
                     maxind = j

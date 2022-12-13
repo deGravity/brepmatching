@@ -150,7 +150,8 @@ class BRepMatchingDataModule(pl.LightningDataModule):
     debug_data: bool = False,
     seed: int = 42,
     test_size: float = 0.1,
-    val_size: float = 0.1
+    val_size: float = 0.1,
+    single_set: bool = False
     ):
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -162,14 +163,19 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         self.seed = seed
         self.test_size = test_size
         self.val_size = val_size
+        self.single_set = single_set
 
         self.prepare_data_per_node = False #workaround to seeming bug in lightning
 
     def setup(self, **kwargs):
         super().__init__()
         self.train_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='train')
-        self.test_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='test')
-        self.val_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='val')
+        if self.single_set:
+            self.test_ds = self.train_ds
+            self.val_ds = self.train_ds
+        else:
+            self.test_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='test')
+            self.val_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='val')
 
     def train_dataloader(self):
         return DataLoader(self.train_ds, batch_size=self.batch_size, num_workers=self.num_workers,shuffle=self.shuffle, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
