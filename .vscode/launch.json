@@ -60,6 +60,30 @@
             ]
         },
         {
+            "name": "test training (overfit, batch norm)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/dev.env",
+            "args":[
+                "--tensorboard_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching",
+                "--name", "debug_batch_norm",
+                "--batch_size","5",
+                "--check_val_every_n_epoch","10",
+                "--zip_path","data/example_dataset.zip",
+                "--cache_path","tmp/example_dataset_cache2.pt",
+                "--num_workers","1",
+                "--shuffle","false",
+                "--limit_train_batches","2",
+                "--limit_val_batches","2",
+                "--debug_data","true",
+                "--single_set","true",
+                "--batch_norm","true"
+            ]
+        },
+        {
             "name": "test training (overfit, gpu)",
             "type": "python",
             "request": "launch",

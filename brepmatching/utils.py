@@ -45,3 +45,7 @@ def unzip_hetdata(data):
 def zip_apply(network, zipped_data):
     left, right = unzip_hetdata(zipped_data)
     return network(left), network(right)
+
+def zip_apply_2(network1, network2, zipped_data):
+    left, right = unzip_hetdata(zipped_data)
+    return network1(left), network2(right)

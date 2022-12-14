@@ -17,6 +17,7 @@ class MatchingModel(pl.LightningModule):
         v_in_width: int = 3,
         sbgcn_size: int = 64,
         fflayers: int = 6,
+        batch_norm: bool = False,
 
         #use_uvnet_features: bool = False,
         temperature: float = 100.0, #temperature normalization factor for contrastive softmax
@@ -25,12 +26,13 @@ class MatchingModel(pl.LightningModule):
         ):
         super().__init__()
 
-        self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers)
+        self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm)
         self.temperature = temperature
         self.num_negative = num_negative
 
         self.loss = CrossEntropyLoss()
         self.softmax = LogSoftmax(dim=1)
+        self.batch_norm = batch_norm
 
         # self.faces_accuracy = MeanMetric()
         # self.edges_accuracy = MeanMetric()
