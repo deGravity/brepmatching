@@ -228,7 +228,7 @@ class MatchingModel(pl.LightningModule):
             #temporarily evaluate by computing accuracy of known matches as in legacy version
             num_matches = getattr(data, topo_type + '_matches').shape[1]
             topo2match = np.full(getattr(data, 'left_' + topo_type).shape[0:1],-1)
-            topo2match[getattr(data, topo_type + '_matches')[0]] = np.arange(num_matches)
+            topo2match[getattr(data, topo_type + '_matches')[0].cpu().numpy()] = np.arange(num_matches)
             all_greedy_matches_global = [match for match in all_greedy_matches_global if topo2match[match[0]] >= 0]
             all_greedy_matches_global = np.array(all_greedy_matches_global).T
             #unordered matches -> left topo index -> left original match index (if exists)

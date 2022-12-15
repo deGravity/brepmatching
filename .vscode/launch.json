@@ -13,6 +13,31 @@
             "justMyCode": true
         },
         {
+            "name": "test training (overfit 1 sample)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/dev.env",
+            "args":[
+                "--tensorboard_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching",
+                "--name", "debug_1sample",
+                "--batch_size","1",
+                "--check_val_every_n_epoch","10",
+                "--zip_path","data/example_dataset.zip",
+                "--cache_path","tmp/example_dataset_cache2.pt",
+                //"--num_workers","1",
+                "--shuffle","false",
+                "--limit_train_batches","1",
+                "--limit_val_batches","1",
+                //"--debug_data","true",
+                "--single_set","true",
+                "--resume_version","0",
+                "--gpus","1"
+            ]
+        },
+        {
             "name": "test training (overfit)",
             "type": "python",
             "request": "launch",
