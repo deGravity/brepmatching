@@ -238,6 +238,7 @@ class MatchingModel(pl.LightningModule):
             gt_matches = getattr(data, topo_type + '_matches')[1].cpu().numpy()
             acc = (right_matches == gt_matches).sum() / len(gt_matches)
             self.log('accuracy/' + topo_type, acc, batch_size = self.count_batches(data))
+            return acc
 
 
     
