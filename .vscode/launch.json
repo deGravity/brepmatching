@@ -177,7 +177,7 @@
             "args":[
                 "--tensorboard_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching",
                 "--name", "full_debug",
-                "--batch_size","16",
+                "--batch_size","256",
                 "--zip_path","/fast/jamesn8/brepmatching/firstFullRunNoTolNewVar.zip",
                 "--cache_path","/fast/jamesn8/brepmatching/example_dataset_cache_split.pt",
                 "--shuffle","true",

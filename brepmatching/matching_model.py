@@ -47,6 +47,7 @@ class MatchingModel(pl.LightningModule):
         return self.pair_embedder(data)
 
     def sample_matches(self, data, topo_type, device='cuda'):
+        #TODO: see if number of samples is too small with large batches
         with torch.no_grad():
             num_batches = self.count_batches(data)
             batch_offsets = []
@@ -180,6 +181,10 @@ class MatchingModel(pl.LightningModule):
         all_matches = []
         all_matching_scores = []
         for adj in adjacency_matrices:
+            if adj.shape[0] == 0 or adj.shape[1] == 0:
+                all_matches.append([])
+                all_matching_scores.append([])
+                continue
             indices = np.indices(adj.shape)
             coords = indices.transpose([1,2,0]).reshape([-1, 2])
             flattened_adj = adj.flatten()
@@ -190,6 +195,7 @@ class MatchingModel(pl.LightningModule):
             visited_right = np.zeros(adj.shape[1], dtype=np.int8)
             matches = []
             matching_scores = []
+            #add matches in descending order of score, greedily
             for j in range(sorted_coords.shape[0]):
                 coord = sorted_coords[j]
                 if visited_left[coord[0]] or visited_right[coord[1]]:
@@ -216,6 +222,8 @@ class MatchingModel(pl.LightningModule):
         for threshold in thresholds:
             all_greedy_matches_global = []
             for b in range(len(greedy_matches_all)):
+                if len(greedy_scores_all[b]) == 0:
+                    continue
                 greedy_matches = greedy_matches_all[b]
                 greedy_matches_threshold = [greedy_matches[j] for j in range(len(greedy_matches)) if greedy_scores_all[b][j] > threshold]
 
