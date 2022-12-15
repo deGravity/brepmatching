@@ -3,8 +3,9 @@ from brepmatching.models import PairEmbedder
 import torch
 from torch.nn import CrossEntropyLoss, LogSoftmax
 from torchmetrics import MeanMetric
+import numpy as np
 
-from torch.profiler import profile, record_function, ProfilerActivity
+#from torch.profiler import profile, record_function, ProfilerActivity
 
 
 
@@ -153,8 +154,94 @@ class MatchingModel(pl.LightningModule):
         self.log('test_loss', loss, batch_size=self.count_batches(data))
 
 
+    def allscores(self, data, orig_emb, var_emb, topo_type):
+        num_batches = self.count_batches(data)
+        batch_left_inds = []
+        batch_right_inds = []
+        batch_left_feats = []
+        batch_right_feats = []
+        for j in range(num_batches):
+            inds_l = (getattr(data, 'left_'+topo_type+'_batch') == j).nonzero().flatten()
+            inds_r = (getattr(data, 'right_'+topo_type+'_batch') == j).nonzero().flatten()
+            batch_left_inds.append(inds_l)
+            batch_right_inds.append(inds_r)
+            batch_left_feats.append(orig_emb[inds_l])
+            batch_right_feats.append(var_emb[inds_r])
+
+        similarity_adj = []
+        for b in range(num_batches):
+            sims = batch_left_feats[b] @ batch_right_feats[b].T
+            similarity_adj.append(sims)
+
+        return similarity_adj, batch_left_inds, batch_right_inds
+    
+
+    def greedy_matching(self, adjacency_matrices):
+        all_matches = []
+        all_matching_scores = []
+        for adj in adjacency_matrices:
+            indices = np.indices(adj.shape)
+            coords = indices.transpose([1,2,0]).reshape([-1, 2])
+            flattened_adj = adj.flatten()
+            sorted_inds = np.argsort(flattened_adj)[::-1]
+            sorted_coords = coords[sorted_inds]
+
+            visited_left = np.zeros(adj.shape[0], dtype=np.int8)
+            visited_right = np.zeros(adj.shape[1], dtype=np.int8)
+            matches = []
+            matching_scores = []
+            for j in range(sorted_coords.shape[0]):
+                coord = sorted_coords[j]
+                if visited_left[coord[0]] or visited_right[coord[1]]:
+                    continue
+                matches.append(coord)
+                matching_scores.append(flattened_adj[j])
+                visited_left[coord[0]] = 1
+                visited_right[coord[1]] = 1
+            matches = np.stack(matches)
+            matching_scores = np.array(matching_scores)
+            all_matches.append(matches)
+            all_matching_scores.append(matching_scores)
+        return all_matches, all_matching_scores
+            
     
     def log_metrics(self, data, orig_emb, var_emb, topo_type):
+        scores, batch_left_inds, batch_right_inds = self.allscores(data, orig_emb, var_emb, topo_type)
+        scores = list(map(lambda t: t.cpu().numpy(), scores))
+        batch_left_inds = list(map(lambda t: t.cpu().numpy(), batch_left_inds))
+        batch_right_inds = list(map(lambda t: t.cpu().numpy(), batch_right_inds))
+        greedy_matches_all, greedy_scores_all = self.greedy_matching(scores)
+
+        thresholds = [-np.inf] #TODO: choose multiple thresholds
+        for threshold in thresholds:
+            all_greedy_matches_global = []
+            for b in range(len(greedy_matches_all)):
+                greedy_matches = greedy_matches_all[b]
+                greedy_matches_threshold = [greedy_matches[j] for j in range(len(greedy_matches)) if greedy_scores_all[b][j] > threshold]
+
+                #TODO: global bipartite matching
+
+                #TODO: actual metrics (missing/spurious matches, edge-level metrics)
+                greedy_matches_global = [[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in greedy_matches]
+                all_greedy_matches_global += greedy_matches_global
+            
+            #temporarily evaluate by computing accuracy of known matches as in legacy version
+            num_matches = getattr(data, topo_type + '_matches').shape[1]
+            topo2match = np.full(getattr(data, 'left_' + topo_type).shape[0:1],-1)
+            topo2match[getattr(data, topo_type + '_matches')[0]] = np.arange(num_matches)
+            all_greedy_matches_global = [match for match in all_greedy_matches_global if topo2match[match[0]] >= 0]
+            all_greedy_matches_global = np.array(all_greedy_matches_global).T
+            #unordered matches -> left topo index -> left original match index (if exists)
+            right_matches = np.full((num_matches,), -1, dtype=np.int)
+            right_matches[topo2match[all_greedy_matches_global[0]]] = all_greedy_matches_global[1]
+
+            gt_matches = getattr(data, topo_type + '_matches')[1].cpu().numpy()
+            acc = (right_matches == gt_matches).sum() / len(gt_matches)
+            self.log('accuracy/' + topo_type, acc, batch_size = self.count_batches(data))
+
+
+    
+    def log_metrics_legacy(self, data, orig_emb, var_emb, topo_type):
         orig_emb_match = orig_emb[getattr(data, topo_type + '_matches')[0]]
 
         num_batches = self.count_batches(data)
