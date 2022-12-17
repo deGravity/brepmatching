@@ -1,0 +1,54 @@
+Hi Ilya,
+
+I'm re-implementing BRep coincidence matching for the paper evaluation like we discussed last week, trying to match what OnShape does. The overleaf document taken from the patent is rather vague in how this is done, just saying that the criteria is "new topology coincides with the old topology up to matching tolerance $\delta$" for exact matches, and for overlap matching that the edge length / surface area for "identical curves"  "overlap at least 80%".
+
+Can you answer a few questions about the original implementation?
+
+1. By what metric is topology matched in the exact case and what tolerance delta is used? The two parasolid functions I see that would do this are PK_FACE_is_coincident, which does take a tolerance, but doesn't work for edges/vertices, and PK_GEOM_is_coincident doesn't have a tolerance option as well as not accounting for boundaries of faces or edges.
+
+
+2. For overlap matching of parts, what does "identical curves / surfaces" mean? This one I assume is PK_GEOM_is_coincident.
+
+
+3. By what metric is 80% overlap computed? Is this done through sampling, or some analytic parasolid call? And what is 80% with respect to - is it intersection over union?
+
+Thanks,
+Ben
+
+
+coincidence matching is implemented by means of:
+
+faces:
+- PK_FACE_is_coincident
+
+edges:
+- PK_GEOM_is_coincident and then check if ends or flipped ends matched and then to handle two opposite ends of circle check the midpoints
+
+not caring about orientation of curves or surfaces
+
+
+80% geom is coincident
+
+use representations to avoid using it everywhere + (grid hashing function )
+
+we're only doing this for 
+
+planes cylinders codes spheres Cone sf t, etc
+
+
+nurbs or offset face, etc. are bounding box tested then do PK_GEOM is coincident
+
+if find coincident geometry, create sheet bodies and compute a boolean
+
+source volume
+
+target volume
+
+intersection  (volume = area or length)
+
+original is smaller of the two volumes
+
+
+hashing sometimes needs to do surface reversal for cases where there isn't a unique vector representation
+this is a performance optimization, we probably don't need to do this in our cases - PK_GEOM_is_coincident
+is likely efficient enough
