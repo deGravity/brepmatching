@@ -139,17 +139,17 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
             n_faces = data.left_faces.shape[0]
             n_edges = data.left_edges.shape[0]
             n_verts = data.left_vertices.shape[0]
-            face_matches = torch.stack([torch.arange(n_faces).long(), torch.arange(n_faces).long()])
-            edge_matches = torch.stack([torch.arange(n_edges).long(), torch.arange(n_edges).long()])
-            vert_matches = torch.stack([torch.arange(n_verts).long(), torch.arange(n_verts).long()])
+            face_matches = torch.stack([torch.arange(n_faces).long(), torch.arange(n_faces).long()]) if n_faces > 0 else torch.empty((2,0)).long()
+            edge_matches = torch.stack([torch.arange(n_edges).long(), torch.arange(n_edges).long()]) if n_edges > 0 else torch.empty((2,0)).long()
+            vert_matches = torch.stack([torch.arange(n_verts).long(), torch.arange(n_verts).long()]) if n_verts > 0 else torch.empty((2,0)).long()
 
             for k in data.keys:
                 if k.startswith('left'):
                     data[f'right{k[4:]}'] = data[k]
 
-            data.face_matches = face_matches
-            data.edge_matches = edge_matches
-            data.vertex_matches = vert_matches
+            data['faces_matches'] = face_matches
+            data['edges_matches'] = edge_matches
+            data['vertices_matches'] = vert_matches
         return data
     
     def __len__(self):
