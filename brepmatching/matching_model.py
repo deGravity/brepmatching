@@ -4,6 +4,7 @@ import torch
 from torch.nn import CrossEntropyLoss, LogSoftmax
 from torchmetrics import MeanMetric
 import numpy as np
+import torch.nn.functional as F
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -44,7 +45,8 @@ class MatchingModel(pl.LightningModule):
     
 
     def forward(self, data):
-        return self.pair_embedder(data)
+        origs, vars = self.pair_embedder(data)
+        return tuple(F.normalize(orig, dim=1) for orig in origs), tuple(F.normalize(var, dim=1) for var in vars)
 
     def sample_matches(self, data, topo_type, device='cuda'):
         #TODO: see if number of samples is too small with large batches
