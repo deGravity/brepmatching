@@ -76,7 +76,7 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     return data
 
 class BRepMatchingDataset(torch.utils.data.Dataset):
-    def __init__(self, zip_path=None, cache_path=None, mode='train', seed=42, test_size=0.1, val_size=0.1):
+    def __init__(self, zip_path=None, cache_path=None, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False):
         do_preprocess = True
         if cache_path is not None:
             if os.path.exists(cache_path):
@@ -122,9 +122,27 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
         groups_to_use = set((train_groups if self.mode == 'train' else test_groups if self.mode == 'test' else val_groups).tolist())
 
         self.preprocessed_data = [self.preprocessed_data[i] for i,g in enumerate(self.group) if g.item() in groups_to_use]
+
+        self.test_identity = test_identity
         
     def __getitem__(self, idx):
-        return self.preprocessed_data[idx]
+        data = self.preprocessed_data[idx]
+        if self.test_identity:
+            n_faces = data.left_faces.shape[0]
+            n_edges = data.left_edges.shape[0]
+            n_verts = data.left_vertices.shape[0]
+            face_matches = torch.stack([torch.arange(n_faces).long(), torch.arange(n_faces).long()])
+            edge_matches = torch.stack([torch.arange(n_edges).long(), torch.arange(n_edges).long()])
+            vert_matches = torch.stack([torch.arange(n_verts).long(), torch.arange(n_verts).long()])
+
+            for k in data.keys:
+                if k.startswith('left'):
+                    data[f'right{k[4:]}'] = data[k]
+
+            data.face_matches = face_matches
+            data.edge_matches = edge_matches
+            data.vertex_matches = vert_matches
+        return data
     
     def __len__(self):
         return len(self.preprocessed_data)
