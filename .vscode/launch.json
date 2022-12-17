@@ -81,7 +81,28 @@
                 "--limit_val_batches","2",
                 "--debug_data","true",
                 "--single_set","true",
-                "--test_identity","true"
+                "--test_identity","true",
+                "--checkpoint_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching/full_shuffle_batchnorm_debug_identical/version_0/checkpoints/last.ckpt"
+            ]
+        },
+        {
+            "name": "test training (identity)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/dev.env",
+            "args":[
+                "--tensorboard_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching",
+                "--name", "debug_identity",
+                "--batch_size","256",
+                "--zip_path","/fast/jamesn8/brepmatching/firstFullRunNoTolNewVar.zip",
+                "--cache_path","/fast/jamesn8/brepmatching/example_dataset_cache_split.pt",
+                "--shuffle","false",
+                "--test_identity","true",
+                "--batch_norm","true",
+                "--checkpoint_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching/full_shuffle_batchnorm_debug_identical/version_0/checkpoints/last.ckpt"
             ]
         },
         {
