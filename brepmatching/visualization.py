@@ -106,7 +106,7 @@ def render_predictions(
         norm_center=0.0, 
         norm_scale=1.0,
         renderer=renderer,
-        render_params=render_params) for pose in right_poses]
+        render_params=render_params) for pose in left_poses]
     image = rendering.grid_images(np.array([left_images,right_images]))
     return image
 
