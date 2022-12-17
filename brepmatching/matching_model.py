@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 from brepmatching.models import PairEmbedder
 import torch
-from torch.nn import CrossEntropyLoss, LogSoftmax
+from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
@@ -22,14 +22,13 @@ class MatchingModel(pl.LightningModule):
         batch_norm: bool = False,
 
         #use_uvnet_features: bool = False,
-        temperature: float = 100.0, #temperature normalization factor for contrastive softmax
         num_negative: int = 5
         
         ):
         super().__init__()
 
         self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm)
-        self.temperature = temperature
+        self.temperature = Parameter(torch.tensor(0.07))
         self.num_negative = num_negative
 
         self.loss = CrossEntropyLoss()
@@ -98,7 +97,7 @@ class MatchingModel(pl.LightningModule):
         f_unmatched_sim = torch.sum(f_orig_unmatched * f_var_unmatched, dim=-1)
 
         f_sim = torch.cat([f_matched_sim.unsqueeze(-1), f_unmatched_sim], dim=1)
-        logits = self.softmax(f_sim / self.temperature)
+        logits = self.softmax(f_sim  * torch.exp(self.temperature))
         labels = torch.zeros_like(logits)
         labels[:,0] = 1
         return self.loss(logits, labels)
