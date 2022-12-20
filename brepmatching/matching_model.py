@@ -98,7 +98,7 @@ class MatchingModel(pl.LightningModule):
         f_unmatched_sim = torch.sum(f_orig_unmatched * f_var_unmatched, dim=-1)
 
         f_sim = torch.cat([f_matched_sim.unsqueeze(-1), f_unmatched_sim], dim=1)
-        logits = f_sim  * torch.min(100, torch.exp(self.temperature))
+        logits = f_sim  * torch.clamp(torch.exp(self.temperature), min=None, max=100)
         labels = torch.zeros_like(logits)
         labels[:,0] = 1
         return self.loss(logits, labels)

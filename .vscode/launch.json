@@ -228,22 +228,5 @@
                 "--shuffle","true",
             ]
         },
-        {
-            "name": "test training on sanka (cpu) final",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/train.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "envFile": "${workspaceFolder}/dev.env",
-            "args":[
-                "--tensorboard_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching",
-                "--name", "full_debug",
-                "--batch_size","256",
-                "--zip_path","/fast/jamesn8/brepmatching/firstFullRunNoTolNewVarFinal.zip",
-                "--cache_path","/fast/jamesn8/brepmatching/firstFullRunNoTolNewVarFinal.pt",
-                "--shuffle","true",
-            ]
-        }
     ]
 }
