@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 from brepmatching.models import PairEmbedder
 import torch
-from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter
+from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter, BCEWithLogitsLoss
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
@@ -31,8 +31,7 @@ class MatchingModel(pl.LightningModule):
         self.temperature = Parameter(torch.tensor(0.07))
         self.num_negative = num_negative
 
-        self.loss = CrossEntropyLoss()
-        self.softmax = LogSoftmax(dim=1)
+        self.loss = BCEWithLogitsLoss()
         self.batch_norm = batch_norm
 
         # self.faces_accuracy = MeanMetric()
@@ -49,6 +48,8 @@ class MatchingModel(pl.LightningModule):
 
     def sample_matches(self, data, topo_type, device='cuda'):
         #TODO: see if number of samples is too small with large batches
+        #TODO: Negative class mining (Improved Deep Metric Learning with Multi-class N-pair Loss Objective)
+        #TODO: Symmetric loss?
         with torch.no_grad():
             num_batches = self.count_batches(data)
             batch_offsets = []
@@ -97,7 +98,7 @@ class MatchingModel(pl.LightningModule):
         f_unmatched_sim = torch.sum(f_orig_unmatched * f_var_unmatched, dim=-1)
 
         f_sim = torch.cat([f_matched_sim.unsqueeze(-1), f_unmatched_sim], dim=1)
-        logits = self.softmax(f_sim  * torch.exp(self.temperature))
+        logits = f_sim  * torch.min(100, torch.exp(self.temperature))
         labels = torch.zeros_like(logits)
         labels[:,0] = 1
         return self.loss(logits, labels)

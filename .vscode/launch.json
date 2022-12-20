@@ -101,8 +101,8 @@
                 "--cache_path","/fast/jamesn8/brepmatching/example_dataset_cache_split.pt",
                 "--shuffle","false",
                 "--test_identity","true",
-                "--batch_norm","true",
-                "--checkpoint_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching/full_shuffle_batchnorm_debug_identical/version_0/checkpoints/last.ckpt"
+                "--batch_norm","false",
+                "--checkpoint_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching/full_shuffle_debug_identical_normalized/version_0/checkpoints/last.ckpt"
             ]
         },
         {
@@ -225,6 +225,23 @@
                 "--batch_size","256",
                 "--zip_path","/fast/jamesn8/brepmatching/firstFullRunNoTolNewVar.zip",
                 "--cache_path","/fast/jamesn8/brepmatching/example_dataset_cache_split.pt",
+                "--shuffle","true",
+            ]
+        },
+        {
+            "name": "test training on sanka (cpu) final",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/dev.env",
+            "args":[
+                "--tensorboard_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching",
+                "--name", "full_debug",
+                "--batch_size","256",
+                "--zip_path","/fast/jamesn8/brepmatching/firstFullRunNoTolNewVarFinal.zip",
+                "--cache_path","/fast/jamesn8/brepmatching/firstFullRunNoTolNewVarFinal.pt",
                 "--shuffle","true",
             ]
         }

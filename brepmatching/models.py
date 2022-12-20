@@ -41,6 +41,7 @@ class PairEmbedder(torch.nn.Module):
     
     def forward(self, batch):
         if self.batch_norm:
+            #TODO: normalize jointly
             batch1, batch2 = zip_apply_2(self.norm_left, self.norm_right, batch)
             batch = zip_hetdata(batch1, batch2)
         orig_embeddings, var_embeddings = zip_apply(self.sbgcn, batch)
