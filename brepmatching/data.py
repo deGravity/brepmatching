@@ -16,6 +16,8 @@ from torch_geometric.loader import DataLoader
 
 
 def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
+    if orig_path not in zf.namelist() or var_path not in zf.namelist() or match_path not in zf.namelist():
+        return None
     options = PartOptions()
     if not include_meshes:
         options.tesselate = False

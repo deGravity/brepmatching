@@ -20,7 +20,7 @@ set(SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
 )
 
-add_library(coincidence_matching 
+add_executable(coincidence_matching 
   ${SOURCES}
 )
 
@@ -32,3 +32,7 @@ target_link_libraries(coincidence_matching PUBLIC
   parasolid_frustrum 
   Eigen3::Eigen 
  )
+
+add_definitions(-DPART1="${CMAKE_CURRENT_SOURCE_DIR}/output_baseline1.x_t")
+add_definitions(-DPART2="${CMAKE_CURRENT_SOURCE_DIR}/output_baseline2.x_t")
+add_definitions(-DMATCHING="${CMAKE_CURRENT_SOURCE_DIR}/match.json")

@@ -1,0 +1,6 @@
+{
+    "cmake.sourceDirectory": "${workspaceFolder}/coincidence_matching",
+    "files.associations": {
+        "tuple": "cpp"
+    }
+}
