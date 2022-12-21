@@ -236,17 +236,42 @@ class MatchingModel(pl.LightningModule):
             
             #temporarily evaluate by computing accuracy of known matches as in legacy version
             num_matches = getattr(data, topo_type + '_matches').shape[1]
-            topo2match = np.full(getattr(data, 'left_' + topo_type).shape[0:1],-1)
-            topo2match[getattr(data, topo_type + '_matches')[0].cpu().numpy()] = np.arange(num_matches)
-            all_greedy_matches_global = [match for match in all_greedy_matches_global if topo2match[match[0]] >= 0]
+            left_num_topos = getattr(data, 'left_' + topo_type).shape[0]
+            right_num_topos = getattr(data, 'right_' + topo_type).shape[0]
+            left_topo2match = np.full((left_num_topos,),-1)
+            right_topo2match = np.full((right_num_topos,),-1)
+            left_topo2match[getattr(data, topo_type + '_matches')[0].cpu().numpy()] = np.arange(num_matches)
+            right_topo2match[getattr(data, topo_type + '_matches')[1].cpu().numpy()] = np.arange(num_matches)
+
+            all_greedy_matches_global = [match for match in all_greedy_matches_global if left_topo2match[match[0]] >= 0]
             all_greedy_matches_global = np.array(all_greedy_matches_global).T
             #unordered matches -> left topo index -> left original match index (if exists)
             right_matches = np.full((num_matches,), -1, dtype=np.int)
-            right_matches[topo2match[all_greedy_matches_global[0]]] = all_greedy_matches_global[1]
+            right_matches[left_topo2match[all_greedy_matches_global[0]]] = all_greedy_matches_global[1]
 
-            gt_matches = getattr(data, topo_type + '_matches')[1].cpu().numpy()
-            acc = (right_matches == gt_matches).sum() / len(gt_matches)
-            self.log('accuracy/' + topo_type, acc, batch_size = self.count_batches(data))
+            right_gt_matches = getattr(data, topo_type + '_matches')[1].cpu().numpy()
+            acc = (right_matches == right_gt_matches).sum() / len(right_gt_matches)
+            self.log('left2right_matched_accuracy/' + topo_type, acc, batch_size = self.count_batches(data))
+
+
+            #right topo had match and found right one
+            left_matches = np.full((num_matches,), -1, dtype=np.int)
+            left_matches[right_topo2match[all_greedy_matches_global[1]]] = all_greedy_matches_global[0]
+            left_gt_matches = getattr(data, topo_type + '_matches')[0].cpu().numpy()
+            acc = (left_matches == left_gt_matches).sum() / len(left_gt_matches)
+            self.log('right2left_matched_accuracy/' + topo_type, acc, batch_size = self.count_batches(data))
+
+            #right topos with missed matches
+            acc = (right_topo2match[right_gt_matches] == -1).sum() / len(left_gt_matches)
+            self.log('right2left_missed/' + topo_type, acc, batch_size = self.count_batches(data))
+
+            #right topo unmatched and correctly not matched
+            right_gt_unmatched = np.ones((right_num_topos,))
+            right_gt_unmatched[right_gt_matches] = 0
+            right_gt_unmatched = right_gt_unmatched.nonzero()
+            acc = (right_topo2match[right_gt_unmatched] != -1).sum() / len(left_gt_matches)
+            self.log('right2left_spurious/' + topo_type, acc, batch_size = self.count_batches(data))
+
             return acc
 
 
