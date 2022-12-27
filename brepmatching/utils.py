@@ -55,7 +55,7 @@ def zip_apply_2(network1, network2, zipped_data):
 def plot_metric(metric, thresholds, name):
     fig = Figure(figsize=(8, 8))
     ax = fig.add_subplot()
-    ax = plt.plot(thresholds, metric, ax=ax)
+    ax.plot(thresholds, metric)
     ax.set_title(name + ' vs threshold')
     ax.set_xlabel('Threshold')
     ax.set_ylabel(name)

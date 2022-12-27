@@ -270,7 +270,8 @@ class MatchingModel(pl.LightningModule):
                 self.log('left2right_matched_accuracy/' + topo_type, acc_left2right, batch_size = self.count_batches(data))
 
             right_topo2match = np.full((right_num_topos,), -1)
-            right_topo2match[all_greedy_matches_global[1]] = all_greedy_matches_global[0]
+            if len(all_greedy_matches_global) > 0:
+                right_topo2match[all_greedy_matches_global[1]] = all_greedy_matches_global[0]
 
             num_gt_matched = (right_topo2gtmatch >= 0).sum()
             num_gt_unmatched = right_num_topos - num_gt_matched
@@ -309,14 +310,14 @@ class MatchingModel(pl.LightningModule):
         fig_recall = plot_metric(recall, thresholds, 'Recall')
         fig_precision = plot_metric(precision, thresholds, 'Precision')
 
-        self.logger.add_figure('truenegative/' + topo_type, fig_truenegative)
-        self.logger.add_figure('falsepositive/' + topo_type, fig_falsepositive)
-        self.logger.add_figure('missed/' + topo_type, fig_missed)
-        self.logger.add_figure('incorrect/' + topo_type, fig_incorrect)
-        self.logger.add_figure('correct/' + topo_type, fig_correct)
-        self.logger.add_figure('incorrect_and_false_positive/' + topo_type, fig_incorrect_and_false_positive)
-        self.logger.add_figure('recall/' + topo_type, fig_recall)
-        self.logger.add_figure('precision/' + topo_type, fig_precision)
+        self.logger.experiment.add_figure('truenegative/' + topo_type, fig_truenegative)
+        self.logger.experiment.add_figure('falsepositive/' + topo_type, fig_falsepositive)
+        self.logger.experiment.add_figure('missed/' + topo_type, fig_missed)
+        self.logger.experiment.add_figure('incorrect/' + topo_type, fig_incorrect)
+        self.logger.experiment.add_figure('correct/' + topo_type, fig_correct)
+        self.logger.experiment.add_figure('incorrect_and_false_positive/' + topo_type, fig_incorrect_and_false_positive)
+        self.logger.experiment.add_figure('recall/' + topo_type, fig_recall)
+        self.logger.experiment.add_figure('precision/' + topo_type, fig_precision)
 
     
     def log_metrics_legacy(self, data, orig_emb, var_emb, topo_type):
