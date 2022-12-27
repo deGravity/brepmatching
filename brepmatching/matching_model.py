@@ -256,31 +256,22 @@ class MatchingModel(pl.LightningModule):
             left_topo2match[left_gt_matches] = right_gt_matches
             right_topo2gtmatch[right_gt_matches] = left_gt_matches
 
-            if j == 0 and False:
-                #evaluate by computing accuracy of known matches as in legacy version
-                all_greedy_matches_global_filtered_left = [match for match in all_greedy_matches_global_raw if left_topo2match[match[0]] >= 0] #filter to only matches for which the left topo has a ground truth match
-                all_greedy_matches_global_filtered_left = np.array(all_greedy_matches_global_filtered_left).T
-                #unordered matches -> left topo index -> left original match index (if exists)
-                right_gt_matches = getattr(data, topo_type + '_matches')[1].cpu().numpy()
-                
-                right_matches = np.full((num_matches,), -1, dtype=np.int)
-                right_matches[left_topo2match[all_greedy_matches_global_filtered_left[0]]] = all_greedy_matches_global_filtered_left[1]
-
-                acc_left2right = (right_matches == right_gt_matches).sum() / len(right_gt_matches)
-                self.log('left2right_matched_accuracy/' + topo_type, acc_left2right, batch_size = self.count_batches(data))
-
             right_topo2match = np.full((right_num_topos,), -1)
             if len(all_greedy_matches_global) > 0:
                 right_topo2match[all_greedy_matches_global[1]] = all_greedy_matches_global[0]
-
             num_gt_matched = (right_topo2gtmatch >= 0).sum()
             num_gt_unmatched = right_num_topos - num_gt_matched
             num_matched = (right_topo2match >= 0).sum()
+
+
 
             matched_mask = (right_topo2match == right_topo2gtmatch)
             num_correct = matched_mask.sum()
             num_truepositive = (matched_mask & (right_topo2match >= 0)).sum()
             num_truenegative = num_correct - num_truepositive
+
+            if j == 0: 
+                self.log('right2left_matched_accuracy/' + topo_type, num_truepositive / num_gt_matched, batch_size = self.count_batches(data))
 
             num_missed = (right_topo2gtmatch[right_topo2match == -1] >= 0).sum()
 
@@ -310,14 +301,14 @@ class MatchingModel(pl.LightningModule):
         fig_recall = plot_metric(recall, thresholds, 'Recall')
         fig_precision = plot_metric(precision, thresholds, 'Precision')
 
-        self.logger.experiment.add_figure('truenegative/' + topo_type, fig_truenegative)
-        self.logger.experiment.add_figure('falsepositive/' + topo_type, fig_falsepositive)
-        self.logger.experiment.add_figure('missed/' + topo_type, fig_missed)
-        self.logger.experiment.add_figure('incorrect/' + topo_type, fig_incorrect)
-        self.logger.experiment.add_figure('correct/' + topo_type, fig_correct)
-        self.logger.experiment.add_figure('incorrect_and_false_positive/' + topo_type, fig_incorrect_and_false_positive)
-        self.logger.experiment.add_figure('recall/' + topo_type, fig_recall)
-        self.logger.experiment.add_figure('precision/' + topo_type, fig_precision)
+        self.logger.experiment.add_figure('truenegative/' + topo_type, fig_truenegative, self.current_epoch)
+        self.logger.experiment.add_figure('falsepositive/' + topo_type, fig_falsepositive, self.current_epoch)
+        self.logger.experiment.add_figure('missed/' + topo_type, fig_missed, self.current_epoch)
+        self.logger.experiment.add_figure('incorrect/' + topo_type, fig_incorrect, self.current_epoch)
+        self.logger.experiment.add_figure('correct/' + topo_type, fig_correct, self.current_epoch)
+        self.logger.experiment.add_figure('incorrect_and_false_positive/' + topo_type, fig_incorrect_and_false_positive, self.current_epoch)
+        self.logger.experiment.add_figure('recall/' + topo_type, fig_recall, self.current_epoch)
+        self.logger.experiment.add_figure('precision/' + topo_type, fig_precision, self.current_epoch)
 
     
     def log_metrics_legacy(self, data, orig_emb, var_emb, topo_type):
