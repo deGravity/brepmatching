@@ -1,5 +1,7 @@
 from automate import HetData
 from torch import is_tensor
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 
 def zip_hetdata(left, right):
     common_keys = set(left.keys).intersection(right.keys)
@@ -49,3 +51,12 @@ def zip_apply(network, zipped_data):
 def zip_apply_2(network1, network2, zipped_data):
     left, right = unzip_hetdata(zipped_data)
     return network1(left), network2(right)
+
+def plot_metric(metric, thresholds, name):
+    fig = Figure(figsize=(8, 8))
+    ax = fig.add_subplot()
+    ax = plt.plot(thresholds, metric, ax=ax)
+    ax.set_title(name + ' vs threshold')
+    ax.set_xlabel('Threshold')
+    ax.set_ylabel(name)
+    return fig

@@ -5,6 +5,7 @@ from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
+from brepmatching.utils import plot_metric
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -219,9 +220,19 @@ class MatchingModel(pl.LightningModule):
         batch_right_inds = list(map(lambda t: t.cpu().numpy(), batch_right_inds))
         greedy_matches_all, greedy_scores_all = self.greedy_matching(scores)
 
-        thresholds = [-np.inf] #TODO: choose multiple thresholds
-        for threshold in thresholds:
-            all_greedy_matches_global = []
+        #truepositives = []
+        truenegatives = []
+        falsepositives = []
+        missed = []
+        incorrect = []
+        true_positives_and_negatives = []
+        incorrect_and_falsepositive = []
+        precision = []
+        recall = []
+
+        thresholds = np.linspace(-1, 1, 10) #TODO: choose multiple thresholds
+        for j,threshold in  enumerate(thresholds):
+            all_greedy_matches_global_raw = [] #all matches in all batches (with global indexing) for the current threshold value
             for b in range(len(greedy_matches_all)):
                 if len(greedy_scores_all[b]) == 0:
                     continue
@@ -231,49 +242,81 @@ class MatchingModel(pl.LightningModule):
                 #TODO: global bipartite matching
 
                 #TODO: actual metrics (missing/spurious matches, edge-level metrics)
-                greedy_matches_global = [[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in greedy_matches]
-                all_greedy_matches_global += greedy_matches_global
+                greedy_matches_global = [[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in greedy_matches_threshold]
+                all_greedy_matches_global_raw += greedy_matches_global
             
-            #temporarily evaluate by computing accuracy of known matches as in legacy version
-            num_matches = getattr(data, topo_type + '_matches').shape[1]
+            all_greedy_matches_global = np.array(all_greedy_matches_global_raw).T
+            
             left_num_topos = getattr(data, 'left_' + topo_type).shape[0]
             right_num_topos = getattr(data, 'right_' + topo_type).shape[0]
-            left_topo2match = np.full((left_num_topos,),-1)
-            right_topo2match = np.full((right_num_topos,),-1)
-            left_topo2match[getattr(data, topo_type + '_matches')[0].cpu().numpy()] = np.arange(num_matches)
-            right_topo2match[getattr(data, topo_type + '_matches')[1].cpu().numpy()] = np.arange(num_matches)
-
-            all_greedy_matches_global = [match for match in all_greedy_matches_global if left_topo2match[match[0]] >= 0]
-            all_greedy_matches_global = np.array(all_greedy_matches_global).T
-            #unordered matches -> left topo index -> left original match index (if exists)
-            right_matches = np.full((num_matches,), -1, dtype=np.int)
-            right_matches[left_topo2match[all_greedy_matches_global[0]]] = all_greedy_matches_global[1]
-
-            right_gt_matches = getattr(data, topo_type + '_matches')[1].cpu().numpy()
-            acc = (right_matches == right_gt_matches).sum() / len(right_gt_matches)
-            self.log('left2right_matched_accuracy/' + topo_type, acc, batch_size = self.count_batches(data))
-
-
-            #right topo had match and found right one
-            left_matches = np.full((num_matches,), -1, dtype=np.int)
-            left_matches[right_topo2match[all_greedy_matches_global[1]]] = all_greedy_matches_global[0]
             left_gt_matches = getattr(data, topo_type + '_matches')[0].cpu().numpy()
-            acc = (left_matches == left_gt_matches).sum() / len(left_gt_matches)
-            self.log('right2left_matched_accuracy/' + topo_type, acc, batch_size = self.count_batches(data))
+            right_gt_matches = getattr(data, topo_type + '_matches')[1].cpu().numpy()
+            left_topo2match = np.full((left_num_topos,),-1)
+            right_topo2gtmatch = np.full((right_num_topos,),-1)
+            left_topo2match[left_gt_matches] = right_gt_matches
+            right_topo2gtmatch[right_gt_matches] = left_gt_matches
 
-            #right topos with missed matches
-            acc = (right_topo2match[right_gt_matches] == -1).sum() / len(left_gt_matches)
-            self.log('right2left_missed/' + topo_type, acc, batch_size = self.count_batches(data))
+            if j == 0 and False:
+                #evaluate by computing accuracy of known matches as in legacy version
+                all_greedy_matches_global_filtered_left = [match for match in all_greedy_matches_global_raw if left_topo2match[match[0]] >= 0] #filter to only matches for which the left topo has a ground truth match
+                all_greedy_matches_global_filtered_left = np.array(all_greedy_matches_global_filtered_left).T
+                #unordered matches -> left topo index -> left original match index (if exists)
+                right_gt_matches = getattr(data, topo_type + '_matches')[1].cpu().numpy()
+                
+                right_matches = np.full((num_matches,), -1, dtype=np.int)
+                right_matches[left_topo2match[all_greedy_matches_global_filtered_left[0]]] = all_greedy_matches_global_filtered_left[1]
 
-            #right topo unmatched and correctly not matched
-            right_gt_unmatched = np.ones((right_num_topos,))
-            right_gt_unmatched[right_gt_matches] = 0
-            right_gt_unmatched = right_gt_unmatched.nonzero()
-            acc = (right_topo2match[right_gt_unmatched] != -1).sum() / len(left_gt_matches)
-            self.log('right2left_spurious/' + topo_type, acc, batch_size = self.count_batches(data))
+                acc_left2right = (right_matches == right_gt_matches).sum() / len(right_gt_matches)
+                self.log('left2right_matched_accuracy/' + topo_type, acc_left2right, batch_size = self.count_batches(data))
 
-            return acc
+            right_topo2match = np.full((right_num_topos,), -1)
+            right_topo2match[all_greedy_matches_global[1]] = all_greedy_matches_global[0]
 
+            num_gt_matched = (right_topo2gtmatch >= 0).sum()
+            num_gt_unmatched = right_num_topos - num_gt_matched
+            num_matched = (right_topo2match >= 0).sum()
+
+            matched_mask = (right_topo2match == right_topo2gtmatch)
+            num_correct = matched_mask.sum()
+            num_truepositive = (matched_mask & (right_topo2match >= 0)).sum()
+            num_truenegative = num_correct - num_truepositive
+
+            num_missed = (right_topo2gtmatch[right_topo2match == -1] >= 0).sum()
+
+            incorrect_mask = (right_topo2match != right_topo2gtmatch)
+            num_incorrect = incorrect_mask.sum()
+            num_false_positive = (right_topo2gtmatch[right_topo2match >= 0] == -1).sum()
+            num_wrong_positive = num_incorrect - num_false_positive - num_missed
+
+            #truepositives.append(num_truepositive / num_gt_matched)
+            truenegatives.append(num_truenegative / num_gt_unmatched)
+            falsepositives.append(num_false_positive / num_gt_unmatched)
+            missed.append(num_missed / num_gt_matched)
+            incorrect.append(num_wrong_positive / num_gt_matched)
+            true_positives_and_negatives.append(num_correct / right_num_topos)
+            incorrect_and_falsepositive.append((num_wrong_positive + num_false_positive) / right_num_topos)
+
+            precision.append(num_truepositive / num_matched)
+            recall.append(num_truepositive / num_gt_matched)
+            
+        fig_truenegative = plot_metric(truenegatives, thresholds, 'Percent Correct (unmatched)')
+        fig_falsepositive = plot_metric(falsepositives, thresholds, 'Percent False Positive (unmatched)')
+        fig_missed = plot_metric(missed, thresholds, 'Percent Missed (matched)')
+        fig_incorrect = plot_metric(incorrect, thresholds, 'Percent Incorrect (matched)')
+        fig_correct = plot_metric(true_positives_and_negatives, thresholds, 'Percent Correct (all)')
+        fig_incorrect_and_false_positive = plot_metric(incorrect_and_falsepositive, thresholds, 'Percent False Positive or Incorrect (all)')
+
+        fig_recall = plot_metric(recall, thresholds, 'Recall')
+        fig_precision = plot_metric(precision, thresholds, 'Precision')
+
+        self.logger.add_figure('truenegative/' + topo_type, fig_truenegative)
+        self.logger.add_figure('falsepositive/' + topo_type, fig_falsepositive)
+        self.logger.add_figure('missed/' + topo_type, fig_missed)
+        self.logger.add_figure('incorrect/' + topo_type, fig_incorrect)
+        self.logger.add_figure('correct/' + topo_type, fig_correct)
+        self.logger.add_figure('incorrect_and_false_positive/' + topo_type, fig_incorrect_and_false_positive)
+        self.logger.add_figure('recall/' + topo_type, fig_recall)
+        self.logger.add_figure('precision/' + topo_type, fig_precision)
 
     
     def log_metrics_legacy(self, data, orig_emb, var_emb, topo_type):
