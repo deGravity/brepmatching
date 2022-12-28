@@ -22,13 +22,16 @@ class MatchingModel(pl.LightningModule):
         fflayers: int = 6,
         batch_norm: bool = False,
 
+        mp_exact_matches: bool = False,
+        mp_overlap_matches: bool = False,
+
         #use_uvnet_features: bool = False,
         num_negative: int = 5
         
         ):
         super().__init__()
 
-        self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm)
+        self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm, mp_exact_matches=mp_exact_matches, mp_overlap_matches=mp_overlap_matches)
         self.temperature = Parameter(torch.tensor(0.07))
         self.num_negative = num_negative
 
