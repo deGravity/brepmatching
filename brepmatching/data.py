@@ -40,6 +40,9 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
         features.mesh = False
     orig_brep = part_to_graph(orig_part, features)
     var_brep = part_to_graph(var_part, features)
+    for brep in (orig_brep, var_brep):
+        if any([torch.any(torch.isnan(feat)) for feat in (brep.faces, brep.edges, brep.vertices)]):
+            return None
 
     export_id_hash = lambda x: xxhash.xxh32(x).intdigest()
     hashed_matches = [(export_id_hash(match['val1']), export_id_hash(match['val2'])) for _,match in matches.items()]
