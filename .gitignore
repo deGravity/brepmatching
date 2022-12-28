@@ -13,6 +13,7 @@ data/*.pt
 # Distribution / packaging
 .Python
 build/
+build_old/
 develop-eggs/
 dist/
 downloads/
