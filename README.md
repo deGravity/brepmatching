@@ -10,6 +10,7 @@ Windows):
 ```
 conda env create -f environment.yml
 conda activate brepmatching
+python setup.py install
 pip install -e .
 ```
 

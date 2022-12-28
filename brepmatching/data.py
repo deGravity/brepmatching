@@ -14,19 +14,25 @@ from .utils import zip_hetdata
 import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
 
+from coincidence_matching import match_parts
+
 
 def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
+    if orig_path not in zf.namelist() or var_path not in zf.namelist() or match_path not in zf.namelist():
+        return None
     options = PartOptions()
     if not include_meshes:
         options.tesselate = False
     with zf.open(match_path,'r') as f:
         matches = json.load(f)
     with zf.open(orig_path, 'r') as f:
-        orig_part = Part(f.read().decode('utf-8'), options)
+        orig_part_data = f.read().decode('utf-8')
+        orig_part = Part(orig_part_data, options)
     if not orig_part.is_valid:
         return None
     with zf.open(var_path, 'r') as f:
-        var_part = Part(f.read().decode('utf-8'), options)
+        var_part_data = f.read().decode('utf-8')
+        var_part = Part(var_part_data, options)
     if not var_part.is_valid:
         return None
     features = PartFeatures()
@@ -34,6 +40,7 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
         features.mesh = False
     orig_brep = part_to_graph(orig_part, features)
     var_brep = part_to_graph(var_part, features)
+
     export_id_hash = lambda x: xxhash.xxh32(x).intdigest()
     hashed_matches = [(export_id_hash(match['val1']), export_id_hash(match['val2'])) for _,match in matches.items()]
 
@@ -46,6 +53,7 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     var_edge_map = index_dict(var_brep.edge_export_ids)
     var_vert_map = index_dict(var_brep.vertex_export_ids)
 
+    # Setup Ground Truth Matches
     face_matches = []
     edge_matches = []
     vert_matches = []
@@ -63,9 +71,10 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
             pass # The last match in our test wasn't in the dataset and was JFD, JFD -- special case?
             #assert(False) # Error - missing export id
 
-    face_matches = torch.tensor(face_matches).long().T if len(face_matches) > 0 else torch.empty((2,0)).long()
-    edge_matches = torch.tensor(edge_matches).long().T if len(edge_matches) > 0 else torch.empty((2,0)).long()
-    vert_matches = torch.tensor(vert_matches).long().T if len(vert_matches) > 0 else torch.empty((2,0)).long()
+    match2tensor = lambda x: torch.tensor(x).long().T if len(x) > 0 else torch.empty((2,0)).long()
+    face_matches = match2tensor(face_matches)
+    edge_matches = match2tensor(edge_matches)
+    vert_matches = match2tensor(vert_matches)
 
     data = zip_hetdata(orig_brep, var_brep)
     data.faces_matches = face_matches
@@ -74,6 +83,34 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     data.__edge_sets__['edges_matches'] = ['left_edges', 'right_edges']
     data.vertices_matches = vert_matches
     data.__edge_sets__['vertices_matches'] = ['left_vertices', 'right_vertices']
+
+    # Setup Baseline Matching
+    baseline_matching = match_parts(orig_part_data, var_part_data, True) # TODO - set exact to false once implemented
+    bl_exact_face_matches = []
+    bl_exact_edge_matches = []
+    bl_exact_vert_matches = []
+    for matchings, orig_map, var_map, out_list in [
+                (baseline_matching.face_matches, orig_face_map, var_face_map, bl_exact_face_matches),
+                (baseline_matching.edge_matches, orig_edge_map, var_edge_map, bl_exact_edge_matches),
+                (baseline_matching.vertex_matches, orig_vert_map, var_vert_map, bl_exact_vert_matches)
+            ]:
+        for o_t, v_t in matchings:
+            o_t_h = export_id_hash(o_t)
+            v_t_h = export_id_hash(v_t)
+            assert(o_t_h in orig_map)
+            assert(v_t_h in var_map)
+            out_list.append([orig_map[o_t_h], var_map[v_t_h]])
+
+    bl_exact_face_matches = match2tensor(bl_exact_face_matches)
+    bl_exact_edge_matches = match2tensor(bl_exact_edge_matches)
+    bl_exact_vert_matches = match2tensor(bl_exact_vert_matches)
+
+    data.bl_exact_faces_matches = bl_exact_face_matches
+    data.__edge_sets__['bl_exact_faces_matches'] = ['left_faces', 'right_faces']
+    data.bl_exact_edges_matches = bl_exact_edge_matches
+    data.__edge_sets__['bl_exact_edges_matches'] = ['left_edges', 'right_edges']
+    data.bl_exact_vertices_matches = bl_exact_vert_matches
+    data.__edge_sets__['bl_exact_vertices_matches'] = ['left_vertices', 'right_vertices']
 
     return data
 
@@ -87,6 +124,7 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
                 cached_data = torch.load(cache_path)
                 self.preprocessed_data = cached_data['preprocessed_data']
                 self.group = cached_data['group']
+                self.original_index = cached_data['original_index']
                 do_preprocess = False
 
         if do_preprocess:
@@ -95,10 +133,14 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
             with ZipFile(zip_path, 'r') as zf:
                 with zf.open('data/VariationData/all_variations.csv','r') as f:
                     variations = pd.read_csv(f)
+                if 'fail' in variations.columns:
+                    variations = variations[variations.fail == 0]
                 orig_id_dict = dict((k,v) for v,k in enumerate(variations.ps_orig.unique()))
                 self.group = []
-                for i in tqdm(range(len(variations))):
+                self.original_index = []
+                for i in tqdm(range(len(variations)), "Preprocessing Data"):
                     variation_record = variations.iloc[i]
+                    variation_index = variations.index[i]
 
                     m_path = 'data/Matches/' + variation_record.matchFile
                     o_path = 'data/BrepsWithReference/' + variation_record.ps_orig
@@ -108,12 +150,14 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
                     if data is not None:
                         self.group.append(orig_id_dict[variation_record.ps_orig])
                         self.preprocessed_data.append(data)
+                        self.original_index.append(variation_index)
             self.group = torch.tensor(self.group).long()
             if cache_path is not None:
                 os.makedirs(os.path.dirname(cache_path),exist_ok=True)
                 cached_data = {
                     'preprocessed_data':self.preprocessed_data,
-                    'group':self.group
+                    'group':self.group,
+                    'original_index':self.original_index
                 }
                 torch.save(cached_data, cache_path)
         
@@ -121,13 +165,22 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
         unique_groups = self.group.unique()
         n_test = int(len(unique_groups)*test_size) if test_size < 1 else test_size
         n_val = int(len(unique_groups)*val_size) if val_size < 1 else val_size
-        train_groups, test_groups = train_test_split(unique_groups, test_size=n_test, random_state=seed)
-        train_groups, val_groups = train_test_split(train_groups, test_size=n_val, random_state=seed)
+        if test_size > 0:
+            train_groups, test_groups = train_test_split(unique_groups, test_size=n_test, random_state=seed)
+        else:
+            train_groups = unique_groups
+            test_groups = np.array([],dtype=int)
+        if val_size > 0:
+            train_groups, val_groups = train_test_split(train_groups, test_size=n_val, random_state=seed)
+        else:
+            val_groups = np.array([],dtype=int)
         groups_to_use = set((train_groups if self.mode == 'train' else test_groups if self.mode == 'test' else val_groups).tolist())
 
         self.preprocessed_data = [self.preprocessed_data[i] for i,g in enumerate(self.group) if g.item() in groups_to_use]
 
         self.test_identity = test_identity
+
+        self.original_index = [self.original_index[i] for i,g in enumerate(self.group) if g.item() in groups_to_use]
         
     def __getitem__(self, idx):
         data = self.preprocessed_data[idx]
@@ -152,6 +205,9 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
             data['vertices_matches'] = vert_matches
         return data
     
+    def variation_index(self, idx):
+        return self.original_index[idx]
+        
     def __len__(self):
         return len(self.preprocessed_data)
 
