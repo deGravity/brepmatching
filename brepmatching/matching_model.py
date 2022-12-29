@@ -5,7 +5,7 @@ from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
-from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff
+from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -26,23 +26,26 @@ class MatchingModel(pl.LightningModule):
         mp_overlap_matches: bool = False,
 
         #use_uvnet_features: bool = False,
-        num_negative: int = 5
+        num_negative: int = 5,
+        num_thresholds: int = 10
         
         ):
         super().__init__()
 
-        self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm, mp_exact_matches=mp_exact_matches, mp_overlap_matches=mp_overlap_matches)
-        self.temperature = Parameter(torch.tensor(0.07))
         self.num_negative = num_negative
+        self.num_thresholds = num_thresholds
+        self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm, mp_exact_matches=mp_exact_matches, mp_overlap_matches=mp_overlap_matches)
 
         self.loss = CrossEntropyLoss()
         self.softmax = LogSoftmax(dim=1)
         self.batch_norm = batch_norm
+        self.temperature = Parameter(torch.tensor(0.07))
 
         # self.faces_accuracy = MeanMetric()
         # self.edges_accuracy = MeanMetric()
         # self.vertices_accuracy = MeanMetric()
         # self.accuracy = MeanMetric()
+
 
         self.save_hyperparameters()
     
@@ -53,7 +56,7 @@ class MatchingModel(pl.LightningModule):
 
     def sample_matches(self, data, topo_type, device='cuda'):
         with torch.no_grad():
-            num_batches = self.count_batches(data)
+            num_batches = count_batches(data)
             batch_offsets = []
             batch_offset = torch.tensor(0)
             for batch in range(num_batches):
@@ -105,10 +108,6 @@ class MatchingModel(pl.LightningModule):
         labels[:,0] = 1
         return self.loss(logits, labels)
 
-    
-    def count_batches(self, data):
-        return data.left_faces_batch[-1]+1 #Todo: is there a better way to count batches?
-    
 
     def training_step(self, data, batch_idx):
         face_allperms, faces_match_mask = self.sample_matches(data, 'faces', device=data.left_faces.device)
@@ -120,7 +119,7 @@ class MatchingModel(pl.LightningModule):
         v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
 
-        batch_size=self.count_batches(data)
+        batch_size=count_batches(data)
         self.log('effective_batch_size/face', torch.tensor(face_allperms.shape[1], dtype=torch.float), on_epoch=True, batch_size=batch_size)
         self.log('effective_batch_size/edge', torch.tensor(edge_allperms.shape[1], dtype=torch.float), on_epoch=True, batch_size=batch_size)
         self.log('effective_batch_size/vert', torch.tensor(vert_allperms.shape[1], dtype=torch.float), on_epoch=True, batch_size=batch_size)
@@ -138,14 +137,14 @@ class MatchingModel(pl.LightningModule):
         e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
         v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
-        self.log('val_loss', loss, batch_size=self.count_batches(data))
+        self.log('val_loss', loss, batch_size=count_batches(data))
 
         #with profile(activities=[
         #        ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         #    with record_function("model_inference"):
-        f_acc = self.log_metrics(data, f_orig, f_var, 'faces')
-        e_acc = self.log_metrics(data, e_orig, e_var, 'edges')
-        v_acc = self.log_metrics(data, v_orig, v_var, 'vertices')
+        f_acc = self.log_metrics(data, f_orig, f_var, 'faces', self.num_thresholds)
+        e_acc = self.log_metrics(data, e_orig, e_var, 'edges', self.num_thresholds)
+        v_acc = self.log_metrics(data, v_orig, v_var, 'vertices', self.num_thresholds)
     
         #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
@@ -159,20 +158,20 @@ class MatchingModel(pl.LightningModule):
         e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
         v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
-        self.log('test_loss', loss, batch_size=self.count_batches(data))
+        self.log('test_loss', loss, batch_size=count_batches(data))
 
 
     def allscores(self, data, orig_emb, var_emb, topo_type):
-        num_batches = self.count_batches(data)
-        batch_left_inds = []
-        batch_right_inds = []
+        num_batches = count_batches(data)
+        #batch_left_inds = []
+        #batch_right_inds = []
         batch_left_feats = []
         batch_right_feats = []
         for j in range(num_batches):
-            inds_l = (getattr(data, 'left_'+topo_type+'_batch') == j).nonzero().flatten()
-            inds_r = (getattr(data, 'right_'+topo_type+'_batch') == j).nonzero().flatten()
-            batch_left_inds.append(inds_l)
-            batch_right_inds.append(inds_r)
+            inds_l = (getattr(data, 'left_'+topo_type+'_batch') == j)
+            inds_r = (getattr(data, 'right_'+topo_type+'_batch') == j)
+            #batch_left_inds.append(inds_l)
+            #batch_right_inds.append(inds_r)
             batch_left_feats.append(orig_emb[inds_l])
             batch_right_feats.append(var_emb[inds_r])
 
@@ -181,121 +180,18 @@ class MatchingModel(pl.LightningModule):
             sims = batch_left_feats[b] @ batch_right_feats[b].T
             similarity_adj.append(sims)
 
-        return similarity_adj, batch_left_inds, batch_right_inds
+        return similarity_adj#, batch_left_inds, batch_right_inds
     
-
-    def greedy_matching(self, adjacency_matrices):
-        all_matches = []
-        all_matching_scores = []
-        for adj in adjacency_matrices:
-            if adj.shape[0] == 0 or adj.shape[1] == 0:
-                all_matches.append([])
-                all_matching_scores.append([])
-                continue
-            indices = np.indices(adj.shape)
-            coords = indices.transpose([1,2,0]).reshape([-1, 2])
-            flattened_adj = adj.flatten()
-            sorted_inds = np.argsort(flattened_adj)[::-1]
-            sorted_coords = coords[sorted_inds]
-
-            visited_left = np.zeros(adj.shape[0], dtype=np.int8)
-            visited_right = np.zeros(adj.shape[1], dtype=np.int8)
-            matches = []
-            matching_scores = []
-            #add matches in descending order of score, greedily
-            for j in range(sorted_coords.shape[0]):
-                coord = sorted_coords[j]
-                if visited_left[coord[0]] or visited_right[coord[1]]:
-                    continue
-                matches.append(coord)
-                matching_scores.append(flattened_adj[j])
-                visited_left[coord[0]] = 1
-                visited_right[coord[1]] = 1
-            matches = np.stack(matches)
-            matching_scores = np.array(matching_scores)
-            all_matches.append(matches)
-            all_matching_scores.append(matching_scores)
-        return all_matches, all_matching_scores
-            
     
-    def log_metrics(self, data, orig_emb, var_emb, topo_type):
-        scores, batch_left_inds, batch_right_inds = self.allscores(data, orig_emb, var_emb, topo_type)
+    def log_metrics(self, data, orig_emb, var_emb, topo_type, num_thresholds=10):
+        scores = self.allscores(data, orig_emb, var_emb, topo_type)
         scores = list(map(lambda t: t.cpu().numpy(), scores))
-        batch_left_inds = list(map(lambda t: t.cpu().numpy(), batch_left_inds))
-        batch_right_inds = list(map(lambda t: t.cpu().numpy(), batch_right_inds))
-        greedy_matches_all, greedy_scores_all = self.greedy_matching(scores)
+        greedy_matches_all, greedy_scores_all = greedy_matching(scores)
 
-        #truepositives = []
-        truenegatives = []
-        falsepositives = []
-        missed = []
-        incorrect = []
-        true_positives_and_negatives = []
-        incorrect_and_falsepositive = []
-        precision = []
-        recall = []
+        thresholds = np.linspace(-1, 1, num_thresholds) #TODO: choose multiple thresholds
 
-        thresholds = np.linspace(-1, 1, 10) #TODO: choose multiple thresholds
-        for j,threshold in  enumerate(thresholds):
-            all_greedy_matches_global_raw = [] #all matches in all batches (with global indexing) for the current threshold value
-            for b in range(len(greedy_matches_all)):
-                if len(greedy_scores_all[b]) == 0:
-                    continue
-                greedy_matches = greedy_matches_all[b]
-                greedy_matches_threshold = [greedy_matches[j] for j in range(len(greedy_matches)) if greedy_scores_all[b][j] > threshold]
-
-                #TODO: global bipartite matching
-
-                #TODO: actual metrics (missing/spurious matches, edge-level metrics)
-                greedy_matches_global = [[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in greedy_matches_threshold]
-                all_greedy_matches_global_raw += greedy_matches_global
-            
-            all_greedy_matches_global = np.array(all_greedy_matches_global_raw).T
-            
-            left_num_topos = getattr(data, 'left_' + topo_type).shape[0]
-            right_num_topos = getattr(data, 'right_' + topo_type).shape[0]
-            left_gt_matches = getattr(data, topo_type + '_matches')[0].cpu().numpy()
-            right_gt_matches = getattr(data, topo_type + '_matches')[1].cpu().numpy()
-            left_topo2match = np.full((left_num_topos,),-1)
-            right_topo2gtmatch = np.full((right_num_topos,),-1)
-            left_topo2match[left_gt_matches] = right_gt_matches
-            right_topo2gtmatch[right_gt_matches] = left_gt_matches
-
-            right_topo2match = np.full((right_num_topos,), -1)
-            if len(all_greedy_matches_global) > 0:
-                right_topo2match[all_greedy_matches_global[1]] = all_greedy_matches_global[0]
-            num_gt_matched = (right_topo2gtmatch >= 0).sum()
-            num_gt_unmatched = right_num_topos - num_gt_matched
-            num_matched = (right_topo2match >= 0).sum()
-
-
-
-            matched_mask = (right_topo2match == right_topo2gtmatch)
-            num_correct = matched_mask.sum()
-            num_truepositive = (matched_mask & (right_topo2match >= 0)).sum()
-            num_truenegative = num_correct - num_truepositive
-
-            if j == 0: 
-                self.log('right2left_matched_accuracy/' + topo_type, num_truepositive / num_gt_matched, batch_size = self.count_batches(data))
-
-            num_missed = (right_topo2gtmatch[right_topo2match == -1] >= 0).sum()
-
-            incorrect_mask = (right_topo2match != right_topo2gtmatch)
-            num_incorrect = incorrect_mask.sum()
-            num_false_positive = (right_topo2gtmatch[right_topo2match >= 0] == -1).sum()
-            num_wrong_positive = num_incorrect - num_false_positive - num_missed
-
-            #truepositives.append(num_truepositive / num_gt_matched)
-            truenegatives.append((num_truenegative / num_gt_unmatched) if num_gt_unmatched > 0 else 0)
-            falsepositives.append((num_false_positive / num_gt_unmatched) if num_gt_unmatched > 0 else 0)
-            missed.append(num_missed / num_gt_matched)
-            incorrect.append(num_wrong_positive / num_gt_matched)
-            true_positives_and_negatives.append(num_correct / right_num_topos)
-            incorrect_and_falsepositive.append((num_wrong_positive + num_false_positive) / right_num_topos)
-
-            precision.append(num_truepositive / num_matched)
-            recall.append(num_truepositive / num_gt_matched)
-            
+        truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy = compute_metrics(data, greedy_matches_all, greedy_scores_all, topo_type, thresholds)
+        self.log('right2left_matched_accuracy/' + topo_type, right2left_matched_accuracy, batch_size = count_batches(data))
         # fig_truenegative = plot_metric(truenegatives, thresholds, 'Percent Correct (unmatched)')
         # fig_falsepositive = plot_metric(falsepositives, thresholds, 'Percent False Positive (unmatched)')
         # fig_missed = plot_metric(missed, thresholds, 'Percent Missed (matched)')
@@ -337,7 +233,7 @@ class MatchingModel(pl.LightningModule):
     def log_metrics_legacy(self, data, orig_emb, var_emb, topo_type):
         orig_emb_match = orig_emb[getattr(data, topo_type + '_matches')[0]]
 
-        num_batches = self.count_batches(data)
+        num_batches = count_batches(data)
         batch_right_inds = []
         batch_right_feats = []
         for j in range(num_batches):
@@ -355,7 +251,7 @@ class MatchingModel(pl.LightningModule):
 
         matches = torch.stack(matches)
         acc = (matches == getattr(data, topo_type + '_matches')[1]).sum() / len(matches)
-        self.log('accuracy/' + topo_type, acc, batch_size = self.count_batches(data))
+        self.log('accuracy/' + topo_type, acc, batch_size = count_batches(data))
         return acc
 
 

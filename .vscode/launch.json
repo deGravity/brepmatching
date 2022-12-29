@@ -56,10 +56,6 @@
                 //"--debug_data","true",
                 "--single_set",
                 "true",
-                "--resume_version",
-                "0",
-                "--gpus",
-                "1"
             ]
         },
         {
