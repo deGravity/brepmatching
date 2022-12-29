@@ -284,8 +284,8 @@ class MatchingModel(pl.LightningModule):
             num_wrong_positive = num_incorrect - num_false_positive - num_missed
 
             #truepositives.append(num_truepositive / num_gt_matched)
-            truenegatives.append(num_truenegative / num_gt_unmatched)
-            falsepositives.append(num_false_positive / num_gt_unmatched)
+            truenegatives.append((num_truenegative / num_gt_unmatched) if num_gt_unmatched > 0 else 0)
+            falsepositives.append((num_false_positive / num_gt_unmatched) if num_gt_unmatched > 0 else 0)
             missed.append(num_missed / num_gt_matched)
             incorrect.append(num_wrong_positive / num_gt_matched)
             true_positives_and_negatives.append(num_correct / right_num_topos)
@@ -315,7 +315,7 @@ class MatchingModel(pl.LightningModule):
         # self.logger.experiment.add_figure('recall/' + topo_type, fig_recall, self.current_epoch)
         # self.logger.experiment.add_figure('precision/' + topo_type, fig_precision, self.current_epoch)\
         label_indices = [0, len(thresholds) // 2, -1]
-        fig_precision_recall = plot_tradeoff(precision, recall, thresholds, label_indices, 'Precision', 'Recall')
+        fig_precision_recall = plot_tradeoff(recall, precision, thresholds, label_indices, 'Recall', 'Precision')
         fig_missed_spurious = plot_tradeoff(missed, falsepositives, thresholds, label_indices, 'Missed', 'False Positive')
 
         fig_all = plot_multiple_metrics({'True Negatives': truenegatives,
