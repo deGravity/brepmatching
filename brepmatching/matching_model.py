@@ -122,6 +122,9 @@ class MatchingModel(pl.LightningModule):
         loss = f_loss + e_loss + v_loss
 
         batch_size=self.count_batches(data)
+        self.log('effective_batch_size/face', torch.tensor(face_allperms.shape[1], dtype=torch.float), on_epoch=True, batch_size=batch_size)
+        self.log('effective_batch_size/edge', torch.tensor(edge_allperms.shape[1], dtype=torch.float), on_epoch=True, batch_size=batch_size)
+        self.log('effective_batch_size/vert', torch.tensor(vert_allperms.shape[1], dtype=torch.float), on_epoch=True, batch_size=batch_size)
         self.log('train_loss/step', loss, on_step=True, on_epoch=False, batch_size=batch_size)
         self.log('train_loss/epoch', loss, on_step=False, on_epoch=True, batch_size=batch_size)
         return loss

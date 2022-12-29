@@ -29,6 +29,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--no_train', action='store_true')
     parser.add_argument('--no_test', action='store_true')
+    parser.add_argument('--validate', action='store_true')
 
     parser = pl.Trainer.add_argparse_args(parser)
     parser = BRepMatchingDataModule.add_argparse_args(parser)
@@ -67,4 +68,22 @@ if __name__ == '__main__':
     callbacks = model.get_callbacks()
 
     trainer = pl.Trainer.from_argparse_args(args, logger=logger, callbacks = callbacks)
-    trainer.fit(model, data)
+
+    if not args.no_train:
+        trainer.fit(model, data)
+    
+    if not args.no_test:
+        if args.no_train:
+            if args.checkpoint_path is None:
+                print('Testing from initialization.')
+            else:
+                print(f'Testing from {args.checkpoint_path}')
+            if args.validate:
+                results = trainer.validate(model, datamodule=data)
+            else:
+                results = trainer.test(model, datamodule=data)
+        else:
+            ckpt = trainer.checkpoint_callback.best_model_path
+            print(f'Testing from {ckpt}')
+            results = trainer.validate(datamodule=data)
+            results = trainer.test(datamodule=data)
