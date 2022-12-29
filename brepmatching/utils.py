@@ -178,7 +178,7 @@ def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type
         #truepositives.append(num_truepositive / num_gt_matched)
         truenegatives.append((num_truenegative / num_gt_unmatched) if num_gt_unmatched > 0 else 0)
         falsepositives.append((num_false_positive / num_gt_unmatched) if num_gt_unmatched > 0 else 0)
-        missed.append(num_missed / num_gt_matched)
+        missed.append(num_missed / right_num_topos)
         incorrect.append(num_wrong_positive / num_gt_matched)
         true_positives_and_negatives.append(num_correct / right_num_topos)
         incorrect_and_falsepositive.append((num_wrong_positive + num_false_positive) / right_num_topos)
@@ -204,8 +204,14 @@ def plot_metric(metric, thresholds, name):
 def plot_multiple_metrics(metrics, thresholds, name):
     fig = Figure(figsize=(8, 8))
     ax = fig.add_subplot()
-    for key in metrics:
-        ax.plot(thresholds, metrics[key], label=key)
+    for j,key in enumerate(metrics):
+        if j == 0:
+            color = '#0000ff'
+        elif j == 2:
+            color = '#ff0000'
+        else:
+            color = None
+        ax.plot(thresholds, metrics[key], label=key, color=color)
     ax.legend()
     ax.set_xlabel('Threshold')
     ax.set_title(name)

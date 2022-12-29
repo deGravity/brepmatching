@@ -216,16 +216,21 @@ class MatchingModel(pl.LightningModule):
         fig_precision_recall = plot_tradeoff(recall, precision, thresholds, label_indices, 'Recall', 'Precision', ' (' + topo_type + ')')
         fig_missed_spurious = plot_tradeoff(missed, falsepositives, thresholds, label_indices, 'Missed', 'False Positive', ' (' + topo_type + ')')
 
-        fig_all = plot_multiple_metrics({'True Negatives': truenegatives,
-        'False Positives': falsepositives,
-        'Missed': missed,
-        'Incorrect (Matched)': incorrect,
+        fig_all = plot_multiple_metrics({
+        #'True Negatives': truenegatives,
+        #'False Positives': falsepositives,
         'Correct (all)': true_positives_and_negatives,
-        #'Incorrect or False Positive': incorrect_and_falsepositive,
-        'precision': precision,
-        'recall': recall}, thresholds, 'Metrics vs. Threshold (%% of true neg/pos) (' + topo_type + ')')
+        'Missed': missed,
+        #'Incorrect (Matched)': incorrect,
+        'Incorrect or False Positive (all)': incorrect_and_falsepositive,
+        }, thresholds, 'Metrics vs. Threshold (' + topo_type + ')')
+
+        fig_precrecall_flat = plot_multiple_metrics({
+            'precision': precision,
+        'recall': recall}, thresholds, 'Precision & Recall vs. Threshold (' + topo_type + ')')
 
         self.logger.experiment.add_figure('metric_plots/' + topo_type, fig_all, self.current_epoch)
+        self.logger.experiment.add_figure('precision_recall_flat/' + topo_type, fig_precrecall_flat, self.current_epoch)
         self.logger.experiment.add_figure('precision_recall/' + topo_type, fig_precision_recall, self.current_epoch)
         self.logger.experiment.add_figure('missed_falsepositive/' + topo_type, fig_missed_spurious, self.current_epoch)
 
