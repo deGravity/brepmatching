@@ -59,4 +59,35 @@ def plot_metric(metric, thresholds, name):
     ax.set_title(name + ' vs threshold')
     ax.set_xlabel('Threshold')
     ax.set_ylabel(name)
+    ax.set_ylim(0, 1)
+    return fig
+    
+def plot_multiple_metrics(metrics, thresholds, name):
+    fig = Figure(figsize=(8, 8))
+    ax = fig.add_subplot()
+    for key in metrics:
+        ax.plot(thresholds, metrics[key], label=key)
+    ax.legend()
+    ax.set_xlabel('Threshold')
+    ax.set_title(name)
+    ax.set_ylim(0, 1)
+    return fig
+
+def plot_tradeoff(x, y, values, indices, xname, yname):
+    fig = Figure(figsize=(8, 8))
+    ax = fig.add_subplot()
+    ax.plot(x, y)
+
+    x_filtered = [x[i] for i in indices]
+    y_filtered = [y[i] for i in indices]
+    v_filtered = [values[i] for i in indices]
+    ax.scatter(x_filtered, y_filtered)
+    for xf, yf, vf in zip(x_filtered, y_filtered, v_filtered):
+        ax.annotate(str(round(vf,2)), (xf, yf))
+
+    ax.set_title(yname + ' VS ' + xname)
+    ax.set_xlabel(xname)
+    ax.set_ylabel(yname)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
     return fig

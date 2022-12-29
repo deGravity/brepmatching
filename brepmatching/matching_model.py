@@ -5,7 +5,7 @@ from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
-from brepmatching.utils import plot_metric
+from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -294,24 +294,42 @@ class MatchingModel(pl.LightningModule):
             precision.append(num_truepositive / num_matched)
             recall.append(num_truepositive / num_gt_matched)
             
-        fig_truenegative = plot_metric(truenegatives, thresholds, 'Percent Correct (unmatched)')
-        fig_falsepositive = plot_metric(falsepositives, thresholds, 'Percent False Positive (unmatched)')
-        fig_missed = plot_metric(missed, thresholds, 'Percent Missed (matched)')
-        fig_incorrect = plot_metric(incorrect, thresholds, 'Percent Incorrect (matched)')
-        fig_correct = plot_metric(true_positives_and_negatives, thresholds, 'Percent Correct (all)')
-        fig_incorrect_and_false_positive = plot_metric(incorrect_and_falsepositive, thresholds, 'Percent False Positive or Incorrect (all)')
+        # fig_truenegative = plot_metric(truenegatives, thresholds, 'Percent Correct (unmatched)')
+        # fig_falsepositive = plot_metric(falsepositives, thresholds, 'Percent False Positive (unmatched)')
+        # fig_missed = plot_metric(missed, thresholds, 'Percent Missed (matched)')
+        # fig_incorrect = plot_metric(incorrect, thresholds, 'Percent Incorrect (matched)')
+        # fig_correct = plot_metric(true_positives_and_negatives, thresholds, 'Percent Correct (all)')
+        # fig_incorrect_and_false_positive = plot_metric(incorrect_and_falsepositive, thresholds, 'Percent False Positive or Incorrect (all)')
 
-        fig_recall = plot_metric(recall, thresholds, 'Recall')
-        fig_precision = plot_metric(precision, thresholds, 'Precision')
+        # fig_recall = plot_metric(recall, thresholds, 'Recall')
+        # fig_precision = plot_metric(precision, thresholds, 'Precision')
 
-        self.logger.experiment.add_figure('truenegative/' + topo_type, fig_truenegative, self.current_epoch)
-        self.logger.experiment.add_figure('falsepositive/' + topo_type, fig_falsepositive, self.current_epoch)
-        self.logger.experiment.add_figure('missed/' + topo_type, fig_missed, self.current_epoch)
-        self.logger.experiment.add_figure('incorrect/' + topo_type, fig_incorrect, self.current_epoch)
-        self.logger.experiment.add_figure('correct/' + topo_type, fig_correct, self.current_epoch)
-        self.logger.experiment.add_figure('incorrect_and_false_positive/' + topo_type, fig_incorrect_and_false_positive, self.current_epoch)
-        self.logger.experiment.add_figure('recall/' + topo_type, fig_recall, self.current_epoch)
-        self.logger.experiment.add_figure('precision/' + topo_type, fig_precision, self.current_epoch)
+        
+
+        # self.logger.experiment.add_figure('truenegative/' + topo_type, fig_truenegative, self.current_epoch)
+        # self.logger.experiment.add_figure('falsepositive/' + topo_type, fig_falsepositive, self.current_epoch)
+        # self.logger.experiment.add_figure('missed/' + topo_type, fig_missed, self.current_epoch)
+        # self.logger.experiment.add_figure('incorrect/' + topo_type, fig_incorrect, self.current_epoch)
+        # self.logger.experiment.add_figure('correct/' + topo_type, fig_correct, self.current_epoch)
+        # self.logger.experiment.add_figure('incorrect_and_false_positive/' + topo_type, fig_incorrect_and_false_positive, self.current_epoch)
+        # self.logger.experiment.add_figure('recall/' + topo_type, fig_recall, self.current_epoch)
+        # self.logger.experiment.add_figure('precision/' + topo_type, fig_precision, self.current_epoch)\
+        label_indices = [0, len(thresholds) // 2, -1]
+        fig_precision_recall = plot_tradeoff(precision, recall, thresholds, label_indices, 'Precision', 'Recall')
+        fig_missed_spurious = plot_tradeoff(missed, falsepositives, thresholds, label_indices, 'Missed', 'False Positive')
+
+        fig_all = plot_multiple_metrics({'True Negatives': truenegatives,
+        'False Positives': falsepositives,
+        'Missed': missed,
+        'Incorrect (Matched)': incorrect,
+        'Correct (all)': true_positives_and_negatives,
+        #'Incorrect or False Positive': incorrect_and_falsepositive,
+        'precision': precision,
+        'recall': recall}, thresholds, 'Metrics vs. Threshold (%% of true neg/pos)')
+
+        self.logger.experiment.add_figure('metric_plots/' + topo_type, fig_all, self.current_epoch)
+        self.logger.experiment.add_figure('precision_recall/' + topo_type, fig_precision_recall, self.current_epoch)
+        self.logger.experiment.add_figure('missed_falsepositive/' + topo_type, fig_missed_spurious, self.current_epoch)
 
     
     def log_metrics_legacy(self, data, orig_emb, var_emb, topo_type):
