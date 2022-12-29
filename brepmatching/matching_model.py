@@ -52,7 +52,6 @@ class MatchingModel(pl.LightningModule):
         return tuple(F.normalize(orig, dim=1) for orig in origs), tuple(F.normalize(var, dim=1) for var in vars)
 
     def sample_matches(self, data, topo_type, device='cuda'):
-        #TODO: see if number of samples is too small with large batches
         with torch.no_grad():
             num_batches = self.count_batches(data)
             batch_offsets = []
