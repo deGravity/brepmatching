@@ -85,5 +85,7 @@ if __name__ == '__main__':
         else:
             ckpt = trainer.checkpoint_callback.best_model_path
             print(f'Testing from {ckpt}')
-            results = trainer.validate(datamodule=data)
-            results = trainer.test(datamodule=data)
+            if args.validate:
+                results = trainer.validate(datamodule=data)
+            else:
+                results = trainer.test(datamodule=data)

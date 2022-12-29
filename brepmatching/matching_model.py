@@ -318,8 +318,8 @@ class MatchingModel(pl.LightningModule):
         # self.logger.experiment.add_figure('recall/' + topo_type, fig_recall, self.current_epoch)
         # self.logger.experiment.add_figure('precision/' + topo_type, fig_precision, self.current_epoch)\
         label_indices = [0, len(thresholds) // 2, -1]
-        fig_precision_recall = plot_tradeoff(recall, precision, thresholds, label_indices, 'Recall', 'Precision')
-        fig_missed_spurious = plot_tradeoff(missed, falsepositives, thresholds, label_indices, 'Missed', 'False Positive')
+        fig_precision_recall = plot_tradeoff(recall, precision, thresholds, label_indices, 'Recall', 'Precision', ' (' + topo_type + ')')
+        fig_missed_spurious = plot_tradeoff(missed, falsepositives, thresholds, label_indices, 'Missed', 'False Positive', ' (' + topo_type + ')')
 
         fig_all = plot_multiple_metrics({'True Negatives': truenegatives,
         'False Positives': falsepositives,

@@ -73,7 +73,7 @@ def plot_multiple_metrics(metrics, thresholds, name):
     ax.set_ylim(-0.1, 1.1)
     return fig
 
-def plot_tradeoff(x, y, values, indices, xname, yname):
+def plot_tradeoff(x, y, values, indices, xname, yname, suffix=''):
     fig = Figure(figsize=(8, 8))
     ax = fig.add_subplot()
     ax.plot(x, y)
@@ -85,7 +85,7 @@ def plot_tradeoff(x, y, values, indices, xname, yname):
     for xf, yf, vf in zip(x_filtered, y_filtered, v_filtered):
         ax.annotate(str(round(vf,2)), (xf, yf))
 
-    ax.set_title(yname + ' VS ' + xname)
+    ax.set_title(yname + ' VS ' + xname + suffix)
     ax.set_xlabel(xname)
     ax.set_ylabel(yname)
     ax.set_xlim(-0.1, 1.1)
