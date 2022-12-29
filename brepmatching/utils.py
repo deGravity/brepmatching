@@ -59,6 +59,16 @@ def count_batches(data):
 
 
 def greedy_matching(adjacency_matrices):
+    """
+    Performs greedy matching based on descending similarity score
+    Parameters:
+    - adjacency_matrices: Array of similarity matrices, where the i,jth element specifies the similarity between the ith topology on the left and the jth topology on the right
+
+    Returns:
+    - all_matches: array of matches, each of which is a n x 2 numpy arrays containing the matching topo indices for a pair of parts
+    - all_matching_scores: array of matching scores, each of which is an n-length numpy array containing the similarity scores for each corresponding matching (see above)
+    """
+
     all_matches = []
     all_matching_scores = []
     for adj in adjacency_matrices:
@@ -92,11 +102,15 @@ def greedy_matching(adjacency_matrices):
     return all_matches, all_matching_scores
 
 
-def compute_metrics(data, greedy_matches_all, greedy_scores_all, topo_type, thresholds):
+def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type, thresholds):
     """
-    greedy_matches_all: array of matches, each of which is a n x 2 numpy arrays containing the matching topo indices for a pair of parts
-    greedy_scores_all: array of matching scores, each of which is an n-length numpy array containing the similarity scores for each corresponding matching (see above)
-    topo_type: (faces | edges | vertices)
+    Compute various metrics relating to the accuracy, missed or false positive matches of the predicted matching
+    Parameters
+    - data: brep matching graph data object
+    - greedy_matches_all: array of matches, each of which is a n x 2 numpy arrays containing the matching topo indices for a pair of parts
+    - greedy_scores_all: array of matching scores (confidence values), each of which is an n-length numpy array containing the similarity scores for each corresponding matching (see above)
+    - topo_type: (faces | edges | vertices)
+    - thresholds: Threshold values for which to evaluate the metrics
     """
 
     num_batches = count_batches(data)
@@ -116,20 +130,20 @@ def compute_metrics(data, greedy_matches_all, greedy_scores_all, topo_type, thre
     recall = []
 
     for j,threshold in  enumerate(thresholds):
-        all_greedy_matches_global_raw = [] #all matches in all batches (with global indexing) for the current threshold value
-        for b in range(len(greedy_matches_all)):
-            if len(greedy_scores_all[b]) == 0:
+        all_predicted_matches_global_raw = [] #all matches in all batches (with global indexing) for the current threshold value
+        for b in range(len(predicted_matches_all)):
+            if len(predicted_scores_all[b]) == 0:
                 continue
-            greedy_matches = greedy_matches_all[b]
-            greedy_matches_threshold = [greedy_matches[j] for j in range(len(greedy_matches)) if greedy_scores_all[b][j] > threshold]
+            predicted_matches = predicted_matches_all[b]
+            predicted_matches_threshold = [predicted_matches[j] for j in range(len(predicted_matches)) if predicted_scores_all[b][j] > threshold]
 
             #TODO: global bipartite matching
 
             #TODO: actual metrics (missing/spurious matches, edge-level metrics)
-            greedy_matches_global = [[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in greedy_matches_threshold]
-            all_greedy_matches_global_raw += greedy_matches_global
+            predicted_matches_global = [[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in predicted_matches_threshold]
+            all_predicted_matches_global_raw += predicted_matches_global
         
-        all_greedy_matches_global = np.array(all_greedy_matches_global_raw).T
+        all_predicted_matches_global = np.array(all_predicted_matches_global_raw).T
         
         left_num_topos = getattr(data, 'left_' + topo_type).shape[0]
         right_num_topos = getattr(data, 'right_' + topo_type).shape[0]
@@ -141,8 +155,8 @@ def compute_metrics(data, greedy_matches_all, greedy_scores_all, topo_type, thre
         right_topo2gtmatch[right_gt_matches] = left_gt_matches
 
         right_topo2match = np.full((right_num_topos,), -1)
-        if len(all_greedy_matches_global) > 0:
-            right_topo2match[all_greedy_matches_global[1]] = all_greedy_matches_global[0]
+        if len(all_predicted_matches_global) > 0:
+            right_topo2match[all_predicted_matches_global[1]] = all_predicted_matches_global[0]
         num_gt_matched = (right_topo2gtmatch >= 0).sum()
         num_gt_unmatched = right_num_topos - num_gt_matched
         num_matched = (right_topo2match >= 0).sum()
