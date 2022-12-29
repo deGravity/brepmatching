@@ -328,7 +328,7 @@ class MatchingModel(pl.LightningModule):
         'Correct (all)': true_positives_and_negatives,
         #'Incorrect or False Positive': incorrect_and_falsepositive,
         'precision': precision,
-        'recall': recall}, thresholds, 'Metrics vs. Threshold (%% of true neg/pos)')
+        'recall': recall}, thresholds, 'Metrics vs. Threshold (%% of true neg/pos) (' + topo_type + ')')
 
         self.logger.experiment.add_figure('metric_plots/' + topo_type, fig_all, self.current_epoch)
         self.logger.experiment.add_figure('precision_recall/' + topo_type, fig_precision_recall, self.current_epoch)
