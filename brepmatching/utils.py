@@ -199,6 +199,7 @@ def plot_metric(metric, thresholds, name):
     ax.set_xlabel('Threshold')
     ax.set_ylabel(name)
     ax.set_ylim(-0.1, 1.1)
+    ax.grid()
     return fig
     
 def plot_multiple_metrics(metrics, thresholds, name):
@@ -216,6 +217,7 @@ def plot_multiple_metrics(metrics, thresholds, name):
     ax.set_xlabel('Threshold')
     ax.set_title(name)
     ax.set_ylim(-0.1, 1.1)
+    ax.grid()
     return fig
 
 def plot_tradeoff(x, y, values, indices, xname, yname, suffix=''):
@@ -235,4 +237,5 @@ def plot_tradeoff(x, y, values, indices, xname, yname, suffix=''):
     ax.set_ylabel(yname)
     ax.set_xlim(-0.1, 1.1)
     ax.set_ylim(-0.1, 1.1)
+    ax.grid()
     return fig
