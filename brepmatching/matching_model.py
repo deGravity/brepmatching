@@ -103,6 +103,8 @@ class MatchingModel(pl.LightningModule):
     
     def compute_loss(self, allperms, data, f_orig, f_var, topo_type, mask):
         matches_masked = getattr(data, topo_type + '_matches')[:, mask]
+        fraction_matches_kept = matches_masked.shape[1] / mask.shape[0]
+        self.log('fraction_matches_kept/' + topo_type, fraction_matches_kept, batch_size=count_batches(data), on_epoch=True)
         f_orig_matched = f_orig[matches_masked[0]]
         f_var_matched = f_var[matches_masked[1]]
         f_matched_sim = torch.sum(f_orig_matched * f_var_matched, dim=-1)
@@ -174,7 +176,7 @@ class MatchingModel(pl.LightningModule):
         self.log_final_metrics('faces')
         self.log_final_metrics('edges')
         self.log_final_metrics('vertices')
-        
+
 
     def test_epoch_end(self, outputs):
         self.validation_epoch_end(self, outputs)

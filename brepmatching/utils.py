@@ -107,8 +107,8 @@ def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type
     Compute various metrics relating to the accuracy, missed or false positive matches of the predicted matching
     Parameters
     - data: brep matching graph data object
-    - greedy_matches_all: array of matches, each of which is a n x 2 numpy arrays containing the matching topo indices for a pair of parts
-    - greedy_scores_all: array of matching scores (confidence values), each of which is an n-length numpy array containing the similarity scores for each corresponding matching (see above)
+    - predicted_matches_all: array of matches, each of which is a n x 2 numpy arrays containing the matching topo indices for a pair of parts
+    - predicted_scores_all: array of matching scores (confidence values), each of which is an n-length numpy array containing the similarity scores for each corresponding matching (see above)
     - topo_type: (faces | edges | vertices)
     - thresholds: Threshold values for which to evaluate the metrics
     """
