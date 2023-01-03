@@ -202,7 +202,13 @@ class MatchingModel(pl.LightningModule):
             similarity_adj.append(sims)
 
         return similarity_adj#, batch_left_inds, batch_right_inds
-    
+
+
+    def log_baselines(self, data, topo_type):
+        batch_size = count_batches(data).item()
+        
+        truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy = compute_metrics(data, greedy_matches_all, greedy_scores_all, topo_type, thresholds)
+
     
     def log_metrics(self, data, orig_emb, var_emb, topo_type):
         batch_size = count_batches(data).item()

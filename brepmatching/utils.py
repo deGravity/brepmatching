@@ -101,6 +101,22 @@ def greedy_matching(adjacency_matrices):
         all_matching_scores.append(matching_scores)
     return all_matches, all_matching_scores
 
+def separate_batched_matches(matches, left_topo_batches, right_topo_batches):
+    """
+    given a 2xn tensor of matches, and the batches tensor of the left and right nodes into which the matches index,
+    return a list of b matches, with local indices within each instance
+    """
+
+
+def batch_matches(matches, left_topo_batches, right_topo_batches):
+    """
+    Batch together matches, which are a list of lists of match pairs (NOT a list of 2xN tensors!)
+    """
+    num_batches = len(matches)
+    batch_left_inds = [(left_topo_batches == j).nonzero() for j in range(num_batches)]
+    batch_right_inds = [(right_topo_batches == j).nonzero() for j in range(num_batches)]
+    return [[[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in matches[b]] for b in range(num_batches)]
+
 
 def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type, thresholds):
     """
@@ -113,12 +129,8 @@ def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type
     - thresholds: Threshold values for which to evaluate the metrics
     """
 
-    num_batches = count_batches(data)
-
     batch_left = getattr(data, 'left_'+topo_type+'_batch')
     batch_right = getattr(data, 'right_'+topo_type+'_batch')
-    batch_left_inds = [(batch_left == j).nonzero().flatten().cpu().numpy() for j in range(num_batches)]
-    batch_right_inds = [(batch_right == j).nonzero().flatten().cpu().numpy() for j in range(num_batches)]
 
     truenegatives = []
     falsepositives = []
@@ -131,17 +143,17 @@ def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type
 
     for j,threshold in  enumerate(thresholds):
         all_predicted_matches_global_raw = [] #all matches in all batches (with global indexing) for the current threshold value
+        all_predicted_matches_threshold_separate = []
         for b in range(len(predicted_matches_all)):
-            if len(predicted_scores_all[b]) == 0:
-                continue
             predicted_matches = predicted_matches_all[b]
-            predicted_matches_threshold = [predicted_matches[j] for j in range(len(predicted_matches)) if predicted_scores_all[b][j] > threshold]
-
+            if predicted_scores_all is None:
+                predicted_matches_threshold = predicted_matches
+            elif len(predicted_scores_all[b]) > 0:
+                predicted_matches_threshold = [predicted_matches[j] for j in range(len(predicted_matches)) if predicted_scores_all[b][j] > threshold]
+            else:
+                continue
+            all_predicted_matches_threshold_separate.append(predicted_matches_threshold)
             #TODO: global bipartite matching
-
-            #TODO: actual metrics (missing/spurious matches, edge-level metrics)
-            predicted_matches_global = [[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in predicted_matches_threshold]
-            all_predicted_matches_global_raw += predicted_matches_global
         
         all_predicted_matches_global = np.array(all_predicted_matches_global_raw).T
         
