@@ -5,11 +5,9 @@ from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
-from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics
+from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg
 
 #from torch.profiler import profile, record_function, ProfilerActivity
-
-
 
 class MatchingModel(pl.LightningModule):
 
@@ -43,10 +41,14 @@ class MatchingModel(pl.LightningModule):
         self.batch_norm = batch_norm
         self.temperature = Parameter(torch.tensor(0.07))
 
-        # self.faces_accuracy = MeanMetric()
-        # self.edges_accuracy = MeanMetric()
-        # self.vertices_accuracy = MeanMetric()
-        # self.accuracy = MeanMetric()
+        self.averages = {}
+        for topo_type in ['faces', 'edges','vertices']:
+            self.averages[topo_type + '_recall'] = Running_avg(num_thresholds)
+            self.averages[topo_type + '_precision'] = Running_avg(num_thresholds)
+            self.averages[topo_type + '_falsepositives'] = Running_avg(num_thresholds)
+            self.averages[topo_type + '_true_positives_and_negatives'] = Running_avg(num_thresholds)
+            self.averages[topo_type + '_incorrect_and_falsepositive'] = Running_avg(num_thresholds)
+            self.averages[topo_type + '_missed'] = Running_avg(num_thresholds)
 
 
         self.save_hyperparameters()
@@ -149,9 +151,9 @@ class MatchingModel(pl.LightningModule):
         #with profile(activities=[
         #        ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         #    with record_function("model_inference"):
-        f_acc = self.log_metrics(data, f_orig, f_var, 'faces', self.num_thresholds)
-        e_acc = self.log_metrics(data, e_orig, e_var, 'edges', self.num_thresholds)
-        v_acc = self.log_metrics(data, v_orig, v_var, 'vertices', self.num_thresholds)
+        f_acc = self.log_metrics(data, f_orig, f_var, 'faces')
+        e_acc = self.log_metrics(data, e_orig, e_var, 'edges')
+        v_acc = self.log_metrics(data, v_orig, v_var, 'vertices')
     
         #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
@@ -166,6 +168,12 @@ class MatchingModel(pl.LightningModule):
         v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
         self.log('test_loss', loss, batch_size=count_batches(data))
+    
+
+    def validation_epoch_end(self, outputs):
+        self.log_final_metrics('faces')
+        self.log_final_metrics('edges')
+        self.log_final_metrics('vertices')
 
 
     def allscores(self, data, orig_emb, var_emb, topo_type):
@@ -190,15 +198,24 @@ class MatchingModel(pl.LightningModule):
         return similarity_adj#, batch_left_inds, batch_right_inds
     
     
-    def log_metrics(self, data, orig_emb, var_emb, topo_type, num_thresholds=10):
+    def log_metrics(self, data, orig_emb, var_emb, topo_type):
+        batch_size = count_batches(data)
+        thresholds = np.linspace(-1, 1, self.num_thresholds)
+
+        
         scores = self.allscores(data, orig_emb, var_emb, topo_type)
         scores = list(map(lambda t: t.cpu().numpy(), scores))
         greedy_matches_all, greedy_scores_all = greedy_matching(scores)
 
-        thresholds = np.linspace(-1, 1, num_thresholds) #TODO: choose multiple thresholds
-
         truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy = compute_metrics(data, greedy_matches_all, greedy_scores_all, topo_type, thresholds)
-        self.log('right2left_matched_accuracy/' + topo_type, right2left_matched_accuracy, batch_size = count_batches(data))
+        self.averages[topo_type + '_recall'](recall, batch_size)
+        self.averages[topo_type + '_precision'](precision, batch_size)
+        self.averages[topo_type + '_falsepositives'](falsepositives, batch_size)
+        self.averages[topo_type + '_true_positives_and_negatives'](true_positives_and_negatives, batch_size)
+        self.averages[topo_type + '_incorrect_and_falsepositive'](incorrect_and_falsepositive, batch_size)
+        self.averages[topo_type + '_missed'](missed, batch_size)
+        
+        self.log('right2left_matched_accuracy/' + topo_type, right2left_matched_accuracy, batch_size = batch_size)
         # fig_truenegative = plot_metric(truenegatives, thresholds, 'Percent Correct (unmatched)')
         # fig_falsepositive = plot_metric(falsepositives, thresholds, 'Percent False Positive (unmatched)')
         # fig_missed = plot_metric(missed, thresholds, 'Percent Missed (matched)')
@@ -219,6 +236,18 @@ class MatchingModel(pl.LightningModule):
         # self.logger.experiment.add_figure('incorrect_and_false_positive/' + topo_type, fig_incorrect_and_false_positive, self.current_epoch)
         # self.logger.experiment.add_figure('recall/' + topo_type, fig_recall, self.current_epoch)
         # self.logger.experiment.add_figure('precision/' + topo_type, fig_precision, self.current_epoch)\
+        
+
+    def log_final_metrics(self, topo_type):
+        thresholds = np.linspace(-1, 1, self.num_thresholds)
+
+        recall = self.averages[topo_type + '_recall'].reset()
+        precision = self.averages[topo_type + '_precision'].reset()
+        missed = self.averages[topo_type + '_missed'].reset()
+        falsepositives = self.averages[topo_type + '_falsepositives'].reset()
+        true_positives_and_negatives = self.averages[topo_type + '_true_positives_and_negatives'].reset()
+        incorrect_and_falsepositive = self.averages[topo_type + '_incorrect_and_falsepositive'].reset()
+
         label_indices = [0, len(thresholds) // 2, -1]
         fig_precision_recall = plot_tradeoff(recall, precision, thresholds, label_indices, 'Recall', 'Precision', ' (' + topo_type + ')')
         fig_missed_spurious = plot_tradeoff(missed, falsepositives, thresholds, label_indices, 'Missed', 'False Positive', ' (' + topo_type + ')')
@@ -240,6 +269,7 @@ class MatchingModel(pl.LightningModule):
         self.logger.experiment.add_figure('precision_recall_flat/' + topo_type, fig_precrecall_flat, self.current_epoch)
         self.logger.experiment.add_figure('precision_recall/' + topo_type, fig_precision_recall, self.current_epoch)
         self.logger.experiment.add_figure('missed_falsepositive/' + topo_type, fig_missed_spurious, self.current_epoch)
+    
 
     
     def log_metrics_legacy(self, data, orig_emb, var_emb, topo_type):

@@ -239,3 +239,16 @@ def plot_tradeoff(x, y, values, indices, xname, yname, suffix=''):
     ax.set_ylim(-0.1, 1.1)
     ax.grid()
     return fig
+
+class Running_avg:
+    def __init__(self, dim):
+        self.state = np.zeros(dim)
+        self.count = 0.0
+    def __call__(self, value, weight):
+        self.state += value * weight
+        self.count += weight
+    def reset(self):
+        val = self.state / self.count if self.count > 0 else 0
+        self.state[:] = 0
+        self.count = 0.0
+        return val
