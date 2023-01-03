@@ -211,7 +211,12 @@ class MatchingModel(pl.LightningModule):
         separate_matches = [match_tensor.T.cpu().numpy() for match_tensor in separate_matches]
 
         truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy = compute_metrics(data, separate_matches, None, topo_type, [-1])
-        self.log(topo_type + '/precision', precision[0], batch_size = batch_size)
+        self.log(topo_type + '/baseline_recall', recall[0], batch_size = batch_size)
+        self.log(topo_type + '/baseline_precision', precision[0], batch_size = batch_size)
+        self.log(topo_type + '/baseline_falsepositives', falsepositives[0], batch_size = batch_size)
+        self.log(topo_type + '/baseline_true_positives_and_negatives', true_positives_and_negatives[0], batch_size = batch_size)
+        self.log(topo_type + '/baseline_incorrect_and_falsepositive', incorrect_and_falsepositive[0], batch_size = batch_size)
+        self.log(topo_type + '/baseline_missed', missed[0], batch_size = batch_size)
 
 
     
