@@ -189,7 +189,7 @@ def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type
         if j == 0:
             right2left_matched_accuracy = num_truepositive / num_gt_matched
 
-    return truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy
+    return np.array(truenegatives), np.array(falsepositives), np.array(missed),  np.array(incorrect), np.array(true_positives_and_negatives), np.array(incorrect_and_falsepositive), np.array(precision), np.array(recall), np.array(right2left_matched_accuracy)
 
 def plot_metric(metric, thresholds, name):
     fig = Figure(figsize=(8, 8))
