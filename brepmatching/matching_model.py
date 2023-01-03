@@ -174,7 +174,11 @@ class MatchingModel(pl.LightningModule):
         self.log_final_metrics('faces')
         self.log_final_metrics('edges')
         self.log_final_metrics('vertices')
+        
 
+    def test_epoch_end(self, outputs):
+        self.validation_epoch_end(self, outputs)
+    
 
     def allscores(self, data, orig_emb, var_emb, topo_type):
         num_batches = count_batches(data)
