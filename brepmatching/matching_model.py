@@ -199,7 +199,7 @@ class MatchingModel(pl.LightningModule):
     
     
     def log_metrics(self, data, orig_emb, var_emb, topo_type):
-        batch_size = count_batches(data)
+        batch_size = count_batches(data).item()
         thresholds = np.linspace(-1, 1, self.num_thresholds)
 
         
