@@ -27,13 +27,15 @@ class MatchingModel(pl.LightningModule):
 
         #use_uvnet_features: bool = False,
         num_negative: int = 5,
-        num_thresholds: int = 10
+        num_thresholds: int = 10,
+        min_topos: int = 1
         
         ):
         super().__init__()
 
         self.num_negative = num_negative
         self.num_thresholds = num_thresholds
+        self.min_topos = min_topos
         self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm, mp_exact_matches=mp_exact_matches, mp_overlap_matches=mp_overlap_matches)
 
         self.loss = CrossEntropyLoss()
@@ -60,7 +62,6 @@ class MatchingModel(pl.LightningModule):
         returns a nxk tensor where each row is indices of k topologies that do not match the given topo
         and a mask of which matches to keep (ones belonging to batches with too few right topos are disabled)
         """
-        min_topos = 1
         with torch.no_grad():
             num_batches = count_batches(data)
             batch_offsets = []
@@ -82,7 +83,7 @@ class MatchingModel(pl.LightningModule):
             for batch, (offset, match_offset) in enumerate(zip(batch_offsets, match_batch_offsets)):
                 batch_size = (getattr(data, 'right_' + topo_type + '_batch') == batch).sum()
                 match_batch_size = (getattr(data, topo_type + '_matches_batch') == batch).sum()
-                if batch_size > self.min_batches:
+                if batch_size > self.min_topos:
                     perms_batch = []
                     for m in range(match_batch_size):
                         match_index = m + match_offset
