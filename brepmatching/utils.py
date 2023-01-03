@@ -111,11 +111,12 @@ def separate_batched_matches(matches, left_topo_batches, right_topo_batches):
 def batch_matches(matches, left_topo_batches, right_topo_batches):
     """
     Batch together matches, which are a list of lists of match pairs (NOT a list of 2xN tensors!)
+    input are numpy arrays
     """
     num_batches = len(matches)
-    batch_left_inds = [(left_topo_batches == j).nonzero() for j in range(num_batches)]
-    batch_right_inds = [(right_topo_batches == j).nonzero() for j in range(num_batches)]
-    return [[[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in matches[b]] for b in range(num_batches)]
+    batch_left_inds = [(left_topo_batches == j).nonzero()[0] for j in range(num_batches)]
+    batch_right_inds = [(right_topo_batches == j).nonzero()[0] for j in range(num_batches)]
+    return sum([[[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in matches[b]] for b in range(num_batches)], [])
 
 
 def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type, thresholds):
@@ -142,7 +143,6 @@ def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type
     recall = []
 
     for j,threshold in  enumerate(thresholds):
-        all_predicted_matches_global_raw = [] #all matches in all batches (with global indexing) for the current threshold value
         all_predicted_matches_threshold_separate = []
         for b in range(len(predicted_matches_all)):
             predicted_matches = predicted_matches_all[b]
@@ -151,10 +151,10 @@ def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type
             elif len(predicted_scores_all[b]) > 0:
                 predicted_matches_threshold = [predicted_matches[j] for j in range(len(predicted_matches)) if predicted_scores_all[b][j] > threshold]
             else:
-                continue
+                predicted_matches_threshold = predicted_matches
             all_predicted_matches_threshold_separate.append(predicted_matches_threshold)
             #TODO: global bipartite matching
-        
+        all_predicted_matches_global_raw = batch_matches(all_predicted_matches_threshold_separate, batch_left.cpu().numpy(), batch_right.cpu().numpy()) #all matches in all batches (with global indexing) for the current threshold value
         all_predicted_matches_global = np.array(all_predicted_matches_global_raw).T
         
         left_num_topos = getattr(data, 'left_' + topo_type).shape[0]
