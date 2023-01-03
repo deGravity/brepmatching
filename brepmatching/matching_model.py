@@ -26,7 +26,9 @@ class MatchingModel(pl.LightningModule):
         #use_uvnet_features: bool = False,
         num_negative: int = 5,
         num_thresholds: int = 10,
-        min_topos: int = 1
+        min_topos: int = 1,
+
+        log_baselines: bool = False
         
         ):
         super().__init__()
@@ -34,6 +36,7 @@ class MatchingModel(pl.LightningModule):
         self.num_negative = num_negative
         self.num_thresholds = num_thresholds
         self.min_topos = min_topos
+        self.log_baselines = log_baselines
         self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm, mp_exact_matches=mp_exact_matches, mp_overlap_matches=mp_overlap_matches)
 
         self.loss = CrossEntropyLoss()
@@ -204,7 +207,7 @@ class MatchingModel(pl.LightningModule):
         return similarity_adj#, batch_left_inds, batch_right_inds
 
 
-    def log_baselines(self, data, topo_type):
+    def _log_baselines(self, data, topo_type):
         batch_size = count_batches(data).item()
         baseline_matches = getattr(data, 'bl_exact_' + topo_type + '_matches')
         separate_matches = separate_batched_matches(baseline_matches, getattr(data, 'left_'+topo_type+'_batch'), getattr(data, 'right_'+topo_type+'_batch'))
@@ -221,7 +224,8 @@ class MatchingModel(pl.LightningModule):
 
     
     def log_metrics(self, data, orig_emb, var_emb, topo_type):
-        self.log_baselines(data, topo_type)
+        if self.log_baselines:
+            self._log_baselines(data, topo_type)
 
         batch_size = count_batches(data).item()
         thresholds = np.linspace(-1, 1, self.num_thresholds)
