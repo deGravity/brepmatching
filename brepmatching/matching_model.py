@@ -5,7 +5,7 @@ from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
-from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg
+from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg, separate_batched_matches
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -206,10 +206,18 @@ class MatchingModel(pl.LightningModule):
 
     def log_baselines(self, data, topo_type):
         batch_size = count_batches(data).item()
-        truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy = compute_metrics(data, getattr(data, 'bl_exact_' + topo_type + '_matches'), None, topo_type, [-1])
+        baseline_matches = getattr(data, 'bl_exact_' + topo_type + '_matches')
+        separate_matches = separate_batched_matches(baseline_matches, getattr(data, 'left_'+topo_type+'_batch'), getattr(data, 'right_'+topo_type+'_batch'))
+        separate_matches = [match_tensor.T.cpu().numpy() for match_tensor in separate_matches]
+
+        truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy = compute_metrics(data, separate_matches, None, topo_type, [-1])
         self.log(topo_type + '/precision', precision[0], batch_size = batch_size)
+
+
     
     def log_metrics(self, data, orig_emb, var_emb, topo_type):
+        self.log_baselines(data, topo_type)
+
         batch_size = count_batches(data).item()
         thresholds = np.linspace(-1, 1, self.num_thresholds)
 

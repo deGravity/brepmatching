@@ -3,6 +3,7 @@ from torch import is_tensor
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 def zip_hetdata(left, right):
     common_keys = set(left.keys).intersection(right.keys)
@@ -106,6 +107,28 @@ def separate_batched_matches(matches, left_topo_batches, right_topo_batches):
     given a 2xn tensor of matches, and the batches tensor of the left and right nodes into which the matches index,
     return a list of b matches, with local indices within each instance
     """
+    match_list = []
+    num_batches = left_topo_batches[-1] + 1
+    match_batches = left_topo_batches[matches[0]]
+    left_batch_counts = [(left_topo_batches == b).sum() for b in range(num_batches)]
+    right_batch_counts = [(right_topo_batches == b).sum() for b in range(num_batches)]
+    left_batch_offsets = []
+    right_batch_offsets = []
+    offset = torch.tensor(0)
+    for size in left_batch_counts:
+        left_batch_offsets.append(offset.clone())
+        offset += size
+    offset = torch.tensor(0)
+    for size in right_batch_counts:
+        right_batch_offsets.append(offset.clone())
+        offset += size
+    
+    for b in range(num_batches):
+        filtered_matches = matches[:, match_batches == b]
+        filtered_matches[0] -= left_batch_offsets[b]
+        filtered_matches[1] -= right_batch_offsets[b]
+        match_list.append(filtered_matches)
+    return match_list
 
 
 def batch_matches(matches, left_topo_batches, right_topo_batches):
