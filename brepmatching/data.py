@@ -15,6 +15,7 @@ import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
 
 from coincidence_matching import match_parts
+from .transforms import *
 
 
 def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
@@ -119,8 +120,9 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
 
 follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'faces_matches', 'edges_matches', 'vertices_matches']
 class BRepMatchingDataset(torch.utils.data.Dataset):
-    def __init__(self, zip_path=None, cache_path=None, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False):
+    def __init__(self, zip_path=None, cache_path=None, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None):
         self.debug = debug
+        self.transforms = compose(transforms) if transforms else None
         do_preprocess = True
         if cache_path is not None:
             if os.path.exists(cache_path):
@@ -229,7 +231,8 @@ class BRepMatchingDataModule(pl.LightningDataModule):
     test_size: float = 0.1,
     val_size: float = 0.1,
     single_set: bool = False,
-    test_identity: bool = False
+    test_identity: bool = False,
+    exact_match_labels: bool = False
     ):
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -243,18 +246,22 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         self.val_size = val_size
         self.single_set = single_set
         self.test_identity = test_identity
+        self.exact_match_labels = exact_match_labels
 
         self.prepare_data_per_node = False #workaround to seeming bug in lightning
 
     def setup(self, **kwargs):
         super().__init__()
-        self.train_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='train', test_identity=self.test_identity)
+        transforms = []
+        if self.exact_match_labels:
+            transforms.append(use_bl_exact_match_labels)
+        self.train_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='train', test_identity=self.test_identity, transforms=transforms)
         if self.single_set:
             self.test_ds = self.train_ds
             self.val_ds = self.train_ds
         else:
-            self.test_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='test', test_identity=self.test_identity)
-            self.val_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='val', test_identity=self.test_identity)
+            self.test_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='test', test_identity=self.test_identity, transforms=transforms)
+            self.val_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='val', test_identity=self.test_identity, transforms=transforms)
 
     def train_dataloader(self):
         return DataLoader(self.train_ds, batch_size=self.batch_size, num_workers=self.num_workers,shuffle=self.shuffle, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
