@@ -122,7 +122,7 @@ follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left
 class BRepMatchingDataset(torch.utils.data.Dataset):
     def __init__(self, zip_path=None, cache_path=None, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None):
         self.debug = debug
-        self.transforms = compose(transforms) if transforms else None
+        self.transforms = compose(*transforms[::-1]) if transforms else None
         do_preprocess = True
         if cache_path is not None:
             if os.path.exists(cache_path):
@@ -208,6 +208,8 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
             data['faces_matches'] = face_matches
             data['edges_matches'] = edge_matches
             data['vertices_matches'] = vert_matches
+        if self.transforms is not None:
+            data = self.transforms(data)
         return data
     
     def variation_index(self, idx):
