@@ -55,6 +55,12 @@ class MatchingModel(pl.LightningModule):
         return tuple(F.normalize(orig, dim=1) for orig in origs), tuple(F.normalize(var, dim=1) for var in vars)
 
     def sample_matches(self, data, topo_type, device='cuda'):
+        """
+        Given n topos of type `topo_type`,
+        returns a nxk tensor where each row is indices of k topologies that do not match the given topo
+        and a mask of which matches to keep (ones belonging to batches with too few right topos are disabled)
+        """
+        min_topos = 1
         with torch.no_grad():
             num_batches = count_batches(data)
             batch_offsets = []
@@ -76,7 +82,7 @@ class MatchingModel(pl.LightningModule):
             for batch, (offset, match_offset) in enumerate(zip(batch_offsets, match_batch_offsets)):
                 batch_size = (getattr(data, 'right_' + topo_type + '_batch') == batch).sum()
                 match_batch_size = (getattr(data, topo_type + '_matches_batch') == batch).sum()
-                if batch_size > 1:
+                if batch_size > self.min_batches:
                     perms_batch = []
                     for m in range(match_batch_size):
                         match_index = m + match_offset
