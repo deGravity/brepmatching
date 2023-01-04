@@ -182,7 +182,7 @@ class MatchingModel(pl.LightningModule):
 
 
     def test_epoch_end(self, outputs):
-        self.validation_epoch_end(self, outputs)
+        self.validation_epoch_end(outputs)
     
 
     def allscores(self, data, orig_emb, var_emb, topo_type):
