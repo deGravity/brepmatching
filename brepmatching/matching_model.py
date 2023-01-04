@@ -19,15 +19,16 @@ class MatchingModel(pl.LightningModule):
         sbgcn_size: int = 64,
         fflayers: int = 6,
         batch_norm: bool = False,
+        use_uvnet_features: bool = False,
+        srf_emb_dim: int = 64,
+        crv_emb_dim: int = 64,
 
         mp_exact_matches: bool = False,
         mp_overlap_matches: bool = False,
 
-        #use_uvnet_features: bool = False,
         num_negative: int = 5,
         num_thresholds: int = 10,
         min_topos: int = 1,
-
         log_baselines: bool = False
         
         ):
@@ -37,7 +38,8 @@ class MatchingModel(pl.LightningModule):
         self.num_thresholds = num_thresholds
         self.min_topos = min_topos
         self.log_baselines = log_baselines
-        self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm, mp_exact_matches=mp_exact_matches, mp_overlap_matches=mp_overlap_matches)
+        
+        self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm, mp_exact_matches=mp_exact_matches, mp_overlap_matches=mp_overlap_matches, use_uvnet_features=use_uvnet_features, crv_emb_dim=crv_emb_dim, srf_emb_dim=srf_emb_dim)
 
         self.loss = CrossEntropyLoss()
         self.softmax = LogSoftmax(dim=1)

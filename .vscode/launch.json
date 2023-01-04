@@ -90,7 +90,8 @@
                 "--debug_data",
                 "true",
                 "--single_set",
-                "true"
+                "true",
+                "--use_uvnet_features","true"
             ]
         },
         {

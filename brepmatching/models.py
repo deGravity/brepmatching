@@ -34,14 +34,17 @@ class PairEmbedder(torch.nn.Module):
         batch_norm=False,
         mp_exact_matches=False,
         mp_overlap_matches=False,
-        prematch_layers=4
+        prematch_layers=4,
+        use_uvnet_features=False,
+        crv_emb_dim=64,
+        srf_emb_dim=64
     ):
         super().__init__()
         self.batch_norm = batch_norm
         if batch_norm:
             self.norm_left = BrepNormalizer(s_face, s_loop, s_edge)
             self.norm_right = BrepNormalizer(s_face, s_loop, s_edge)
-        self.sbgcn = SBGCN(s_face, s_loop, s_edge, s_vert, embedding_size, k)
+        self.sbgcn = SBGCN(s_face, s_loop, s_edge, s_vert, embedding_size, k, use_uvnet_features=use_uvnet_features, crv_emb_dim=crv_emb_dim, srf_emb_dim=srf_emb_dim)
         self.mp_exact_matches = mp_exact_matches
         self.mp_overlap_matches = mp_overlap_matches
         self.prematch_layers = prematch_layers
