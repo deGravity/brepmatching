@@ -35,3 +35,8 @@ target_link_libraries(coincidence_matching PUBLIC cm_lib)
 add_definitions(-DPART1="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/output_baseline1.x_t")
 add_definitions(-DPART2="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/output_baseline2.x_t")
 add_definitions(-DMATCHING="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/match.json")
+
+add_definitions(-DSMALLCUBE="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/small_cube.x_t")
+add_definitions(-DMEDCUBE="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/med_cube.x_t")
+add_definitions(-DLARGECUBE="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/large_cube.x_t")
+add_definitions(-DSHIFTCUBE="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/shifted_cube.x_t")

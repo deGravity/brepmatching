@@ -18,6 +18,18 @@
             ]
         },
         {
+            "name": "Rerun Matches",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/RerunMatchFile.py",
+            "cwd": "${workspaceFolder}/scripts",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "../../../brepmatching/GeoWithBaseline.zip", "../../../brepmatching/GeoWithBaselineMatches"
+            ]
+        },
+        {
             "name": "test network",
             "type": "python",
             "request": "launch",
