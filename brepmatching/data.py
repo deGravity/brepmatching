@@ -14,13 +14,17 @@ from .utils import zip_hetdata
 import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
 
-from coincidence_matching import match_parts
+from coincidence_matching import match_parts, match_parts_dict
 from .transforms import *
 
 
-def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
+
+def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, bl_m_path, include_meshes=True):
     if orig_path not in zf.namelist() or var_path not in zf.namelist() or match_path not in zf.namelist():
         return None
+    if bl_o_path is not None:
+        if bl_o_path not in zf.namelist() or bl_v_path not in zf.namelist() or bl_m_path not in zf.namelist():
+            return None
     options = PartOptions()
     if not include_meshes:
         options.tesselate = False
@@ -46,7 +50,8 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
             return None
 
     export_id_hash = lambda x: xxhash.xxh32(x).intdigest()
-    hashed_matches = [(export_id_hash(match['val1']), export_id_hash(match['val2'])) for _,match in matches.items()]
+    match2tensor = lambda x: torch.tensor(x).long().T if len(x) > 0 else torch.empty((2,0)).long()
+    
 
     index_dict = lambda x: dict((v.item(),k) for k,v in enumerate(x))
     orig_face_map = index_dict(orig_brep.face_export_ids)
@@ -58,27 +63,7 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     var_vert_map = index_dict(var_brep.vertex_export_ids)
 
     # Setup Ground Truth Matches
-    face_matches = []
-    edge_matches = []
-    vert_matches = []
-    for orig_id, var_id in hashed_matches:
-        if orig_id in orig_face_map:
-            assert(var_id in var_face_map)
-            face_matches.append([orig_face_map[orig_id], var_face_map[var_id]])
-        elif orig_id in orig_edge_map:
-            assert(var_id in var_edge_map)
-            edge_matches.append([orig_edge_map[orig_id], var_edge_map[var_id]])
-        elif orig_id in orig_vert_map:
-            assert(var_id in var_vert_map)
-            vert_matches.append([orig_vert_map[orig_id], var_vert_map[var_id]])
-        else:
-            pass # The last match in our test wasn't in the dataset and was JFD, JFD -- special case?
-            #assert(False) # Error - missing export id
-
-    match2tensor = lambda x: torch.tensor(x).long().T if len(x) > 0 else torch.empty((2,0)).long()
-    face_matches = match2tensor(face_matches)
-    edge_matches = match2tensor(edge_matches)
-    vert_matches = match2tensor(vert_matches)
+    face_matches, edge_matches, vert_matches = make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, orig_edge_map, orig_vert_map, var_face_map, var_edge_map, var_vert_map)
 
     data = zip_hetdata(orig_brep, var_brep)
     data.faces_matches = face_matches
@@ -116,7 +101,87 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     data.bl_exact_vertices_matches = bl_exact_vert_matches
     data.__edge_sets__['bl_exact_vertices_matches'] = ['left_vertices', 'right_vertices']
 
+    # Setup Onshape Baseline
+    if bl_m_path is None or bl_o_path is None or bl_v_path is None:
+        return data # Stop now if we don't have baselines in the dataset
+
+    with zf.open(bl_m_path,'r') as f:
+        bl_matches = json.load(f)
+    with zf.open(bl_v_path, 'r') as f:
+        bl_var_part_data = f.read().decode('utf-8')
+    # The Onshape baseline variation may have different export ids than
+    # the original variation file (since it does not have the construction
+    # history to base the ids on). Re-map these back to the original variation
+    # that the ground-truth matching is based on by running exact matching
+    # (the two parts should match perfectly).
+    var_rename = match_parts_dict(bl_var_part_data, var_part_data, True)
+    missing_count = 0
+    for k in bl_matches:
+        if bl_matches[k]['val2'] in var_rename:
+            bl_matches[k]['val2'] = var_rename[bl_matches[k]['val2']]
+        else:
+            missing_count += 1
+    if missing_count > 0:
+        print(f'Missing Matches: {missing_count}')
+    os_bl_face_matches, os_bl_edge_matches, os_bl_vert_matches = make_match_tensors(
+        bl_matches, 
+        export_id_hash, 
+        match2tensor, 
+        orig_face_map, 
+        orig_edge_map, 
+        orig_vert_map, 
+        var_face_map, 
+        var_edge_map, 
+        var_vert_map)
+    
+    data.os_bl_faces_matches = os_bl_face_matches
+    data.__edge_sets__['os_bl_faces_matches'] = ['left_faces', 'right_faces']
+    data.os_bl_edges_matches = os_bl_edge_matches
+    data.__edge_sets__['os_bl_edges_matches'] = ['left_edges', 'right_edges']
+    data.os_bl_vertices_matches = os_bl_vert_matches
+    data.__edge_sets__['os_bl_vertices_matches'] = ['left_vertices', 'right_vertices']
+
     return data
+
+def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, orig_edge_map, orig_vert_map, var_face_map, var_edge_map, var_vert_map):
+    face_matches = []
+    edge_matches = []
+    vert_matches = []
+    hashed_matches = [(export_id_hash(match['val1']), export_id_hash(match['val2'])) for _,match in matches.items()]
+    missing_faces = 0
+    missing_edges = 0
+    missing_verts = 0
+    missing_orig = 0
+    for orig_id, var_id in hashed_matches:
+        if orig_id in orig_face_map:
+            #assert(var_id in var_face_map)
+            if var_id in var_face_map:
+                face_matches.append([orig_face_map[orig_id], var_face_map[var_id]])
+            else:
+                missing_faces += 1
+        elif orig_id in orig_edge_map:
+            #assert(var_id in var_edge_map)
+            if var_id in var_edge_map:
+                edge_matches.append([orig_edge_map[orig_id], var_edge_map[var_id]])
+            else:
+                missing_edges += 1
+        elif orig_id in orig_vert_map:
+            #assert(var_id in var_vert_map)
+            if var_id in var_vert_map:
+                vert_matches.append([orig_vert_map[orig_id], var_vert_map[var_id]])
+            else:
+                missing_verts +=1
+        else:
+            missing_orig += 1
+            pass # The last match in our test wasn't in the dataset and was JFD, JFD -- special case?
+            #assert(False) # Error - missing export id
+    if missing_faces + missing_edges + missing_verts > 0:
+        print(f'Missing: {missing_faces} faces, {missing_edges} edges, {missing_verts} verts, {missing_orig} origs')
+    
+    face_matches = match2tensor(face_matches)
+    edge_matches = match2tensor(edge_matches)
+    vert_matches = match2tensor(vert_matches)
+    return face_matches,edge_matches,vert_matches
 
 follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'faces_matches', 'edges_matches', 'vertices_matches']
 class BRepMatchingDataset(torch.utils.data.Dataset):
@@ -138,6 +203,9 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
             with ZipFile(zip_path, 'r') as zf:
                 with zf.open('data/VariationData/all_variations.csv','r') as f:
                     variations = pd.read_csv(f)
+                if 'data/baseline/allVariationsWithBaseline.csv' in zf.namelist():
+                    with zf.open('data/baseline/allVariationsWithBaseline.csv','r') as f:
+                        variations = pd.read_csv(f)
                 if 'fail' in variations.columns:
                     variations = variations[variations.fail == 0]
                 orig_id_dict = dict((k,v) for v,k in enumerate(variations.ps_orig.unique()))
@@ -151,7 +219,15 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
                     o_path = 'data/BrepsWithReference/' + variation_record.ps_orig
                     v_path = 'data/BrepsWithReference/' + variation_record.ps_var
 
-                    data = make_match_data(zf, o_path, v_path, m_path)
+                    bl_m_path = None
+                    bl_o_path = None
+                    bl_v_path = None
+
+                    if 'baselineMatch' in variations.columns:
+                        bl_m_path = 'data/baseline/' + variation_record.baselineMatch
+                        bl_o_path = 'data/baseline/' + variation_record.baselineOrig
+                        bl_v_path = 'data/baseline/' + variation_record.baselineNew
+                    data = make_match_data(zf, o_path, v_path, m_path, bl_o_path, bl_v_path, bl_m_path)
                     if data is not None:
                         self.group.append(orig_id_dict[variation_record.ps_orig])
                         self.preprocessed_data.append(data)

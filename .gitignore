@@ -10,6 +10,8 @@ __pycache__/
 tmp/*
 data/*.pt
 
+vsbuild/
+
 # Distribution / packaging
 .Python
 build/
