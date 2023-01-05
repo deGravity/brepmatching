@@ -30,4 +30,4 @@ class TupletMarginLoss(Module):
         sims[:,0] = torch.cos(torch.acos(sims[:,0] - self.margin))
 
         inside_exp = self.scale * (sims[:,1:] - sims[:,0:1])
-        return logsumexp(inside_exp, add_one=True, dim=1)
+        return logsumexp(inside_exp, add_one=True, dim=1).mean()

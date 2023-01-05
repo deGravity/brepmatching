@@ -51,7 +51,7 @@ class MatchingModel(pl.LightningModule):
         if loss == 'NPairs':
             self.loss = N_pairs_loss(temperature=temperature)
         elif loss == 'TupletMargin':
-            self.loss = TupletMarginLoss(margin=margin, loss_scale = loss_scale)
+            self.loss = TupletMarginLoss(margin=margin, scale = loss_scale)
         else:
             raise NotImplementedError("Unknown loss function")
 

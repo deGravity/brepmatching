@@ -91,6 +91,7 @@
                 "true",
                 "--single_set",
                 "true",
+                "--loss","TupletMargin"
             ]
         },
         {
