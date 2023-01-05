@@ -6,6 +6,7 @@ from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
 from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg, separate_batched_matches
+from brepmatching.loss import *
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -29,6 +30,8 @@ class MatchingModel(pl.LightningModule):
         num_negative: int = 5,
         num_thresholds: int = 10,
         min_topos: int = 1,
+        temperature: float = -1,
+
         log_baselines: bool = False
         
         ):
@@ -41,10 +44,9 @@ class MatchingModel(pl.LightningModule):
         
         self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm, mp_exact_matches=mp_exact_matches, mp_overlap_matches=mp_overlap_matches, use_uvnet_features=use_uvnet_features, crv_emb_dim=crv_emb_dim, srf_emb_dim=srf_emb_dim)
 
-        self.loss = CrossEntropyLoss()
+        self.loss = N_pairs_loss(temperature=temperature)
         self.softmax = LogSoftmax(dim=1)
         self.batch_norm = batch_norm
-        self.temperature = Parameter(torch.tensor(0.07))
 
         self.averages = {}
         for topo_type in ['faces', 'edges','vertices']:
@@ -119,10 +121,8 @@ class MatchingModel(pl.LightningModule):
         f_unmatched_sim = torch.sum(f_orig_unmatched * f_var_unmatched, dim=-1)
 
         f_sim = torch.cat([f_matched_sim.unsqueeze(-1), f_unmatched_sim], dim=1)
-        logits = f_sim  * torch.exp(self.temperature)
-        labels = torch.zeros_like(logits)
-        labels[:,0] = 1
-        return self.loss(logits, labels)
+        
+        return self.loss(f_sim)
 
 
     def training_step(self, data, batch_idx):

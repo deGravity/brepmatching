@@ -91,7 +91,6 @@
                 "true",
                 "--single_set",
                 "true",
-                "--use_uvnet_features","true"
             ]
         },
         {
@@ -384,7 +383,7 @@
             "envFile": "${workspaceFolder}/dev.env",
             "args": [
                 "--tensorboard_path", "/projects/grail/jamesn8/projects/mechanical/checkpoints/matching_newmetrics",
-                "--name", "TopoAndGeoV2FullRun_shuffle_normfeats_exact_labels_mp_exact_16negatives_eval",
+                "--name", "contrastive_batch256_normalized_16negatives_eval",
                 "--batch_size", "128",
                 "--zip_path", "/fast/jamesn8/brepmatching/TopoAndGeoV2FullRun.zip",
                 "--cache_path", "/fast/jamesn8/brepmatching/TopoAndGeoV2FullRun.pt",
@@ -393,7 +392,7 @@
                 "--num_negative","16",
                 "--exact_match_labels","true",
                 "--mp_exact_matches","true",
-                "--checkpoint_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching_newmetrics/TopoAndGeoV2FullRun_shuffle_normfeats_exact_labels_mp_exact_16negatives/version_0/checkpoints/last.ckpt",
+                "--checkpoint_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching_newmetrics/GeoV2FullRun_shuffle_normfeats_16negatives/version_0/checkpoints/last.ckpt",
                 "--no_train",
                 "--validate",
 
