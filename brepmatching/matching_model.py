@@ -30,7 +30,11 @@ class MatchingModel(pl.LightningModule):
         num_negative: int = 5,
         num_thresholds: int = 10,
         min_topos: int = 1,
+
+        loss: str = 'NPairs', #NPairs, TupletMargin
         temperature: float = -1,
+        margin: float = 0.1,
+        loss_scale: float = 64,
 
         log_baselines: bool = False
         
@@ -44,7 +48,13 @@ class MatchingModel(pl.LightningModule):
         
         self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm, mp_exact_matches=mp_exact_matches, mp_overlap_matches=mp_overlap_matches, use_uvnet_features=use_uvnet_features, crv_emb_dim=crv_emb_dim, srf_emb_dim=srf_emb_dim)
 
-        self.loss = N_pairs_loss(temperature=temperature)
+        if loss == 'NPairs':
+            self.loss = N_pairs_loss(temperature=temperature)
+        elif loss == 'TupletMargin':
+            self.loss = TupletMarginLoss(margin=margin, loss_scale = loss_scale)
+        else:
+            raise NotImplementedError("Unknown loss function")
+
         self.softmax = LogSoftmax(dim=1)
         self.batch_norm = batch_norm
 
@@ -71,6 +81,7 @@ class MatchingModel(pl.LightningModule):
         returns a nxk tensor where each row is indices of k topologies that do not match the given topo
         and a mask of which matches to keep (ones belonging to batches with too few right topos are disabled)
         """
+        #TODO: Do this in the data loader as a transform
         with torch.no_grad():
             num_batches = count_batches(data)
             batch_offsets = []
