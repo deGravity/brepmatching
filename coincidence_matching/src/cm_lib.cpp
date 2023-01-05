@@ -302,15 +302,28 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
             assert(err == PK_ERROR_no_errors);
 
             if (is_coincident) {
-                if ( 
-                    (points_coincident(ends1[0].coord, ends2[0].coord) && points_coincident(ends1[1].coord, ends2[1].coord)) ||
-                    (points_coincident(ends1[0].coord, ends2[1].coord) && points_coincident(ends1[1].coord, ends2[0].coord))
-                ) {
-                    auto p1_edge_id_it = p1_topo_map.find(p1_edge);
-                    auto p2_edge_id_it = p2_topo_map.find(p2_edge);
-                    assert(p1_edge_id_it != p1_topo_map.end());
-                    assert(p2_edge_id_it != p2_topo_map.end());
-                    edge_matches.push_back(std::make_tuple(p1_edge_id_it->second, p2_edge_id_it->second));
+
+                // Check the midpoint too
+
+                PK_VECTOR_t midpoint1, midpoint2;
+                err = PK_CURVE_eval(curve1, (t_int1.value[0] + t_int1.value[1]) / 2, 0, &midpoint1);
+                assert(err == PK_ERROR_no_errors); // PK_CURVE_eval
+
+                err = PK_CURVE_eval(curve2, (t_int2.value[0] + t_int2.value[1]) / 2, 0, &midpoint2);
+                assert(err == PK_ERROR_no_errors); // PK_CURVE_eval
+
+                if (points_coincident(midpoint1.coord, midpoint2.coord)) {
+
+                    if (
+                        (points_coincident(ends1[0].coord, ends2[0].coord) && points_coincident(ends1[1].coord, ends2[1].coord)) ||
+                        (points_coincident(ends1[0].coord, ends2[1].coord) && points_coincident(ends1[1].coord, ends2[0].coord))
+                        ) {
+                        auto p1_edge_id_it = p1_topo_map.find(p1_edge);
+                        auto p2_edge_id_it = p2_topo_map.find(p2_edge);
+                        assert(p1_edge_id_it != p1_topo_map.end());
+                        assert(p2_edge_id_it != p2_topo_map.end());
+                        edge_matches.push_back(std::make_tuple(p1_edge_id_it->second, p2_edge_id_it->second));
+                    }
                 }
             }
         }
