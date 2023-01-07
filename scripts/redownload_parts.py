@@ -44,3 +44,7 @@ def main():
                     with wzf.open(var_path, 'w') as f:
                         f.write(response_var.text.encode('utf-8'))
                     written.add(var_path)
+
+
+if __name__ == '__main__':
+    main()
