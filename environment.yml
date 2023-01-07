@@ -30,4 +30,5 @@ dependencies:
     - xxhash
     - pyrender
     - git+https://github.com/degravity/automate.git@v1.0.4
+    - git+https://github.com/deGravity/onshape-apikey-py3
 

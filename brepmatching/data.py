@@ -14,7 +14,7 @@ from .utils import zip_hetdata
 import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
 
-from coincidence_matching import match_parts, match_parts_dict
+from coincidence_matching import match_parts, match_parts_dict, get_export_id_types
 from .transforms import *
 
 
@@ -62,8 +62,22 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     var_edge_map = index_dict(var_brep.edge_export_ids)
     var_vert_map = index_dict(var_brep.vertex_export_ids)
 
+    orig_id_types = get_export_id_types(orig_part_data)
+    var_id_types = get_export_id_types(var_part_data)
+
     # Setup Ground Truth Matches
-    face_matches, edge_matches, vert_matches = make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, orig_edge_map, orig_vert_map, var_face_map, var_edge_map, var_vert_map)
+    face_matches, edge_matches, vert_matches = make_match_tensors(
+        matches, 
+        export_id_hash, 
+        match2tensor, 
+        orig_face_map, 
+        orig_edge_map, 
+        orig_vert_map, 
+        var_face_map, 
+        var_edge_map, 
+        var_vert_map,
+        orig_id_types,
+        var_id_types)
 
     data = zip_hetdata(orig_brep, var_brep)
     data.faces_matches = face_matches
@@ -122,7 +136,7 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
         else:
             missing_count += 1
     if missing_count > 0:
-        print(f'Missing Matches: {missing_count}')
+        print(f'Missing Matches (OS BL): {missing_count}')
     os_bl_face_matches, os_bl_edge_matches, os_bl_vert_matches = make_match_tensors(
         bl_matches, 
         export_id_hash, 
@@ -132,7 +146,9 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
         orig_vert_map, 
         var_face_map, 
         var_edge_map, 
-        var_vert_map)
+        var_vert_map,
+        orig_id_types,
+        var_id_types)
     
     data.os_bl_faces_matches = os_bl_face_matches
     data.__edge_sets__['os_bl_faces_matches'] = ['left_faces', 'right_faces']
@@ -143,11 +159,13 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
 
     return data
 
-def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, orig_edge_map, orig_vert_map, var_face_map, var_edge_map, var_vert_map):
+def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, orig_edge_map, orig_vert_map, var_face_map, var_edge_map, var_vert_map, orig_classes, var_classes):
     face_matches = []
     edge_matches = []
     vert_matches = []
     hashed_matches = [(export_id_hash(match['val1']), export_id_hash(match['val2'])) for _,match in matches.items()]
+    hashed_orig_classes = {export_id_hash(k):v for k,v in orig_classes.items()}
+    hashed_var_classes = {export_id_hash(k):v for k,v in var_classes.items()}
     missing_faces = 0
     missing_edges = 0
     missing_verts = 0
@@ -172,8 +190,9 @@ def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, ori
             else:
                 missing_verts +=1
         else:
-            missing_orig += 1
-            pass # The last match in our test wasn't in the dataset and was JFD, JFD -- special case?
+            if hashed_orig_classes[orig_id] in ['PK_CLASS_face', 'PK_CLASS_vertex','PK_CLASS_edge']:
+                missing_orig += 1
+            pass # The last match in our test wasn't in the dataset and was JFD, JFD -- looks like this is a body
             #assert(False) # Error - missing export id
     if missing_faces + missing_edges + missing_verts > 0:
         print(f'Missing: {missing_faces} faces, {missing_edges} edges, {missing_verts} verts, {missing_orig} origs')

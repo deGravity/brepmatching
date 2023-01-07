@@ -33,4 +33,5 @@ PYBIND11_MODULE(coincidence_matching, m) {
 			});
 	m.def("match_parts", &match_parts);
 	m.def("match_parts_dict", &match_parts_dict);
+	m.def("get_export_id_types", &get_export_id_types);
 }

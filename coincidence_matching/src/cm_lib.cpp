@@ -84,6 +84,256 @@ std::map<int, std::string> read_attributes(int body_id) {
     return topo_to_id;
 }
 
+std::map<std::string, std::string> get_export_id_types(std::string part) {
+    PK_ERROR_code_t err = PK_ERROR_no_errors;
+    auto bodies = read_xt(part);
+    assert(bodies.size() == 1); // Only one body in the file
+    std::map<std::string, std::string> id_to_type;
+    auto export_ids = read_attributes(bodies[0]);
+    for (auto const& x : export_ids) {
+        PK_CLASS_t entity_class;
+        err = PK_ENTITY_ask_class(x.first, &entity_class);
+        assert(err == PK_ERROR_no_errors); // PK_ENTITY_ask_class
+		switch (entity_class) {
+		case PK_CLASS_null:
+			id_to_type[x.second] = "PK_CLASS_null";
+			break;
+		case PK_CLASS_class:
+			id_to_type[x.second] = "PK_CLASS_class";
+			break;
+		case PK_CLASS_entity:
+			id_to_type[x.second] = "PK_CLASS_entity";
+			break;
+		case PK_CLASS_primitive:
+			id_to_type[x.second] = "PK_CLASS_primitive";
+			break;
+		case PK_CLASS_error:
+			id_to_type[x.second] = "PK_CLASS_error";
+			break;
+		case PK_CLASS_session:
+			id_to_type[x.second] = "PK_CLASS_session";
+			break;
+		case PK_CLASS_memory:
+			id_to_type[x.second] = "PK_CLASS_memory";
+			break;
+		case PK_CLASS_mark:
+			id_to_type[x.second] = "PK_CLASS_mark";
+			break;
+		case PK_CLASS_pmark:
+			id_to_type[x.second] = "PK_CLASS_pmark";
+			break;
+		case PK_CLASS_partition:
+			id_to_type[x.second] = "PK_CLASS_partition";
+			break;
+		case PK_CLASS_bb:
+			id_to_type[x.second] = "PK_CLASS_bb";
+			break;
+		case PK_CLASS_int:
+			id_to_type[x.second] = "PK_CLASS_int";
+			break;
+		case PK_CLASS_double:
+			id_to_type[x.second] = "PK_CLASS_double";
+			break;
+		case PK_CLASS_char:
+			id_to_type[x.second] = "PK_CLASS_char";
+			break;
+		case PK_CLASS_string:
+			id_to_type[x.second] = "PK_CLASS_string";
+			break;
+		case PK_CLASS_logical:
+			id_to_type[x.second] = "PK_CLASS_logical";
+			break;
+		case PK_CLASS_vector:
+			id_to_type[x.second] = "PK_CLASS_vector";
+			break;
+		case PK_CLASS_interval:
+			id_to_type[x.second] = "PK_CLASS_interval";
+			break;
+		case PK_CLASS_box:
+			id_to_type[x.second] = "PK_CLASS_box";
+			break;
+		case PK_CLASS_uvbox:
+			id_to_type[x.second] = "PK_CLASS_uvbox";
+			break;
+		case PK_CLASS_uv:
+			id_to_type[x.second] = "PK_CLASS_uv";
+			break;
+		case PK_CLASS_pointer:
+			id_to_type[x.second] = "PK_CLASS_pointer";
+			break;
+		case PK_CLASS_vector1:
+			id_to_type[x.second] = "PK_CLASS_vector1";
+			break;
+		case PK_CLASS_size:
+			id_to_type[x.second] = "PK_CLASS_size";
+			break;
+		case PK_CLASS_attrib:
+			id_to_type[x.second] = "PK_CLASS_attrib";
+			break;
+		case PK_CLASS_attdef:
+			id_to_type[x.second] = "PK_CLASS_attdef";
+			break;
+		case PK_CLASS_group:
+			id_to_type[x.second] = "PK_CLASS_group";
+			break;
+		case PK_CLASS_transf:
+			id_to_type[x.second] = "PK_CLASS_transf";
+			break;
+		case PK_CLASS_ki_list:
+			id_to_type[x.second] = "PK_CLASS_ki_list";
+			break;
+		case PK_CLASS_topol:
+			id_to_type[x.second] = "PK_CLASS_topol";
+			break;
+		case PK_CLASS_part:
+			id_to_type[x.second] = "PK_CLASS_part";
+			break;
+		case PK_CLASS_assembly:
+			id_to_type[x.second] = "PK_CLASS_assembly";
+			break;
+		case PK_CLASS_body:
+			id_to_type[x.second] = "PK_CLASS_body";
+			break;
+		case PK_CLASS_instance:
+			id_to_type[x.second] = "PK_CLASS_instance";
+			break;
+		case PK_CLASS_region:
+			id_to_type[x.second] = "PK_CLASS_region";
+			break;
+		case PK_CLASS_shell:
+			id_to_type[x.second] = "PK_CLASS_shell";
+			break;
+		case PK_CLASS_face:
+			id_to_type[x.second] = "PK_CLASS_face";
+			break;
+		case PK_CLASS_loop:
+			id_to_type[x.second] = "PK_CLASS_loop";
+			break;
+		case PK_CLASS_edge:
+			id_to_type[x.second] = "PK_CLASS_edge";
+			break;
+		case PK_CLASS_fin:
+			id_to_type[x.second] = "PK_CLASS_fin";
+			break;
+		case PK_CLASS_vertex:
+			id_to_type[x.second] = "PK_CLASS_vertex";
+			break;
+		case PK_CLASS_geom:
+			id_to_type[x.second] = "PK_CLASS_geom";
+			break;
+		case PK_CLASS_surf:
+			id_to_type[x.second] = "PK_CLASS_surf";
+			break;
+		case PK_CLASS_plane:
+			id_to_type[x.second] = "PK_CLASS_plane";
+			break;
+		case PK_CLASS_cyl:
+			id_to_type[x.second] = "PK_CLASS_cyl";
+			break;
+		case PK_CLASS_cone:
+			id_to_type[x.second] = "PK_CLASS_cone";
+			break;
+		case PK_CLASS_sphere:
+			id_to_type[x.second] = "PK_CLASS_sphere";
+			break;
+		case PK_CLASS_torus:
+			id_to_type[x.second] = "PK_CLASS_torus";
+			break;
+		case PK_CLASS_bsurf:
+			id_to_type[x.second] = "PK_CLASS_bsurf";
+			break;
+		case PK_CLASS_offset:
+			id_to_type[x.second] = "PK_CLASS_offset";
+			break;
+		case PK_CLASS_fsurf:
+			id_to_type[x.second] = "PK_CLASS_fsurf";
+			break;
+		case PK_CLASS_swept:
+			id_to_type[x.second] = "PK_CLASS_swept";
+			break;
+		case PK_CLASS_spun:
+			id_to_type[x.second] = "PK_CLASS_spun";
+			break;
+		case PK_CLASS_blendsf:
+			id_to_type[x.second] = "PK_CLASS_blendsf";
+			break;
+		case PK_CLASS_curve:
+			id_to_type[x.second] = "PK_CLASS_curve";
+			break;
+		case PK_CLASS_line:
+			id_to_type[x.second] = "PK_CLASS_line";
+			break;
+		case PK_CLASS_circle:
+			id_to_type[x.second] = "PK_CLASS_circle";
+			break;
+		case PK_CLASS_ellipse:
+			id_to_type[x.second] = "PK_CLASS_ellipse";
+			break;
+		case PK_CLASS_bcurve:
+			id_to_type[x.second] = "PK_CLASS_bcurve";
+			break;
+		case PK_CLASS_icurve:
+			id_to_type[x.second] = "PK_CLASS_icurve";
+			break;
+		case PK_CLASS_fcurve:
+			id_to_type[x.second] = "PK_CLASS_fcurve";
+			break;
+		case PK_CLASS_spcurve:
+			id_to_type[x.second] = "PK_CLASS_spcurve";
+			break;
+		case PK_CLASS_trcurve:
+			id_to_type[x.second] = "PK_CLASS_trcurve";
+			break;
+		case PK_CLASS_cpcurve:
+			id_to_type[x.second] = "PK_CLASS_cpcurve";
+			break;
+		case PK_CLASS_point:
+			id_to_type[x.second] = "PK_CLASS_point";
+			break;
+		case PK_CLASS_nabox:
+			id_to_type[x.second] = "PK_CLASS_nabox";
+			break;
+		case PK_CLASS_item:
+			id_to_type[x.second] = "PK_CLASS_item";
+			break;
+		case PK_CLASS_appitem:
+			id_to_type[x.second] = "PK_CLASS_appitem";
+			break;
+		case PK_CLASS_mtopol:
+			id_to_type[x.second] = "PK_CLASS_mtopol";
+			break;
+		case PK_CLASS_mfacet:
+			id_to_type[x.second] = "PK_CLASS_mfacet";
+			break;
+		case PK_CLASS_mfin:
+			id_to_type[x.second] = "PK_CLASS_mfin";
+			break;
+		case PK_CLASS_mvertex:
+			id_to_type[x.second] = "PK_CLASS_mvertex";
+			break;
+		case PK_CLASS_mesh:
+			id_to_type[x.second] = "PK_CLASS_mesh";
+			break;
+		case PK_CLASS_pline:
+			id_to_type[x.second] = "PK_CLASS_pline";
+			break;
+		case PK_CLASS_lattice:
+			id_to_type[x.second] = "PK_CLASS_lattice";
+			break;
+		case PK_CLASS_ltopol:
+			id_to_type[x.second] = "PK_CLASS_ltopol";
+			break;
+		case PK_CLASS_lrod:
+			id_to_type[x.second] = "PK_CLASS_lrod";
+			break;
+		case PK_CLASS_lball:
+			id_to_type[x.second] = "PK_CLASS_lball";
+			break;
+		}
+	}
+    return id_to_type;
+}
+
 struct BRepTopology
 {
     std::vector<int> faces;

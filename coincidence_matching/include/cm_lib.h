@@ -5,6 +5,7 @@
 #include <string>
 #include <tuple>
 #include <sstream>
+#include <map>
 
 struct Matching {
     std::vector<std::tuple<std::string, std::string>> face_matches;
@@ -26,5 +27,7 @@ struct Matching {
 };
 
 Matching make_matching(std::string part1, std::string part2, bool exact=false);
+
+std::map<std::string, std::string> get_export_id_types(std::string part);
 
 #endif
