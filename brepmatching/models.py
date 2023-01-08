@@ -37,7 +37,8 @@ class PairEmbedder(torch.nn.Module):
         prematch_layers=4,
         use_uvnet_features=False,
         crv_emb_dim=64,
-        srf_emb_dim=64
+        srf_emb_dim=64,
+        mp_cur_matches=False,
     ):
         super().__init__()
         self.batch_norm = batch_norm
@@ -47,10 +48,11 @@ class PairEmbedder(torch.nn.Module):
         self.sbgcn = SBGCN(s_face, s_loop, s_edge, s_vert, embedding_size, k, use_uvnet_features=use_uvnet_features, crv_emb_dim=crv_emb_dim, srf_emb_dim=srf_emb_dim)
         self.mp_exact_matches = mp_exact_matches
         self.mp_overlap_matches = mp_overlap_matches
+        self.mp_cur_matches = mp_cur_matches
         self.prematch_layers = prematch_layers
-        if self.mp_exact_matches or self.mp_overlap_matches:
+        if self.mp_exact_matches or self.mp_overlap_matches or self.mp_cur_matches:
             self.prematch_gnns = torch.nn.ModuleList(
-                [GeneralConv(-1, k, -1, attention=True, heads=8)
+                [GeneralConv(-1, embedding_size, -1, attention=True, heads=8)
                 for i in range(self.prematch_layers)])
     
     def forward(self, batch):
@@ -61,23 +63,32 @@ class PairEmbedder(torch.nn.Module):
         _, _, f_orig, l_orig, e_orig, v_orig = orig_embeddings
         _, _, f_var, l_var, e_var, v_var = var_embeddings
 
-        if self.mp_exact_matches or self.mp_overlap_matches:
-            face_matches = batch.bl_exact_faces_matches.clone()
-            edge_matches = batch.bl_exact_edges_matches.clone()
-            vert_matches = batch.bl_exact_vertices_matches.clone()
-            face_match_types = torch.full((face_matches.shape[1],), 4, device=face_matches.device)
-            edge_match_types = torch.full((edge_matches.shape[1],), 5, device=edge_matches.device)
-            vert_match_types = torch.full((vert_matches.shape[1],), 6, device=vert_matches.device)
-            
-            if self.mp_overlap_matches:
+        device = batch.left_faces.device
 
-                face_match_types = torch.cat([face_match_types, torch.full((batch.bl_overlap_faces_matches.shape[1],),7,device=face_match_types.device)])
-                edge_match_types = torch.cat([edge_match_types, torch.full((batch.bl_overlap_edges_matches.shape[1],),8,device=edge_match_types.device)])
-                vert_match_types = torch.cat([vert_match_types, torch.full((batch.bl_overlap_vertices_matches.shape[1],),9,device=vert_match_types.device)])
+        if self.mp_exact_matches or self.mp_overlap_matches or self.mp_cur_matches:
+            n_types = 4
 
-                face_matches = torch.cat([face_matches, batch.bl_overlap_faces_matches], dim=1)
-                edge_matches = torch.cat([edge_matches, batch.bl_overlap_edges_matches], dim=1)
-                vert_matches = torch.cat([vert_matches, batch.bl_overlap_vertices_matches], dim=1)
+            face_matches = torch.empty(0, dtype=torch.long, device=device)
+            edge_matches = torch.empty(0, dtype=torch.long, device=device)
+            vert_matches = torch.empty(0, dtype=torch.long, device=device)
+
+            face_match_types = torch.empty(0, dtype=torch.long, device=device) 
+            edge_match_types = torch.empty(0, dtype=torch.long, device=device) 
+            vert_match_types = torch.empty(0, dtype=torch.long, device=device) 
+
+            for is_set, fmt in [(self.mp_exact_matches, "bl_exact_%s_matches"),
+                               (self.mp_overlap_matches, "bl_overlap_%s_matches"), 
+                               (self.mp_cur_matches, "cur_%s_matches")]:
+                if is_set:
+                    face_matches = torch.cat([face_matches, batch[fmt % "faces"]], dim=1)
+                    edge_matches = torch.cat([edge_matches, batch[fmt % "edges"]], dim=1)
+                    vert_matches = torch.cat([vert_matches, batch[fmt % "vertices"]], dim=1)
+
+                    face_match_types = torch.cat([face_match_types, torch.full((batch[fmt % "faces"].shape[1],), n_types, device=device)])
+                    edge_match_types = torch.cat([edge_match_types, torch.full((batch[fmt % "edges"].shape[1],), n_types + 1, device=device)])
+                    vert_match_types = torch.cat([vert_match_types, torch.full((batch[fmt % "vertices"].shape[1],), n_types + 2, device=device)])
+                    
+                    n_types += 3
             
             # Put Everything into one big graph
             
@@ -179,7 +190,7 @@ class PairEmbedder(torch.nn.Module):
             link_data = torch.cat([link_data, link_data])
 
             # One-Hot Encode link data
-            link_data = torch.nn.functional.one_hot(link_data, 10).float()
+            link_data = torch.nn.functional.one_hot(link_data, n_types).float()
 
             for gnn in self.prematch_gnns:
                 nodes = gnn(
