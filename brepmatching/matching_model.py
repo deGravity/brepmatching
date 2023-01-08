@@ -114,7 +114,8 @@ class MatchingModel(pl.LightningModule):
 
             # create pairwise concatenation
             grid_l, grid_r = torch.meshgrid(torch.arange(left_k.shape[0], device=self.device),
-                                            torch.arange(right_k.shape[0], device=self.device))
+                                            torch.arange(right_k.shape[0], device=self.device),
+                                            indexing="ij")
             pw_emb = torch.cat((left_k[grid_l[masks[k]]], right_k[grid_r[masks[k]]]), dim=-1) # shape (nl, nr, 128)
 
             sc = torch.zeros(masks[k].shape, device=self.device) # shape (nl, nr)
@@ -222,23 +223,26 @@ class MatchingModel(pl.LightningModule):
         
         return loss / n_iter, data
 
-    def training_step(self, data, batch_idx):
-        cur_data = data.clone()
-        masks = self.init_masks(cur_data)
-        gt_scores = self.init_gt_scores(cur_data)
+    def do_once(self, data: HetData) -> torch.Tensor:
+        masks = self.init_masks(data)
+        gt_scores = self.init_gt_scores(data)
 
         # prepare current match (to randomly 50% of gt_match)
         for kinds, _, _ in TOPO_KINDS:
-            n_gt_matches = cur_data[f"{kinds}_matches"].shape[1]
+            n_gt_matches = data[f"{kinds}_matches"].shape[1]
             indices = torch.randperm(n_gt_matches)[:n_gt_matches // 2]
-            setattr(cur_data, f"cur_{kinds}_matches",
-                cur_data[f"{kinds}_matches"][:, indices])
-            cur_data.__edge_sets__[f"cur_{kinds}_matches"] = [f"left_{kinds}", f"right_{kinds}"]
+            setattr(data, f"cur_{kinds}_matches",
+                data[f"{kinds}_matches"][:, indices])
+            data.__edge_sets__[f"cur_{kinds}_matches"] = [f"left_{kinds}", f"right_{kinds}"]
         
-        scores = self(cur_data, masks)
+        scores = self(data, masks)
         loss = self.compute_loss(scores, gt_scores, masks)
-        
-        assert(not loss.isnan())
+        return loss
+
+
+    def training_step(self, data, batch_idx):
+        cur_data = data.clone()
+        loss = self.do_once(cur_data)
 
         batch_size=count_batches(data)
         self.log('train_loss/step', loss, on_step=True, on_epoch=False, batch_size=batch_size)
@@ -247,11 +251,8 @@ class MatchingModel(pl.LightningModule):
 
 
     def validation_step(self, data, batch_idx):
-        loss, data_after = self.do_iteration(data.clone())
+        loss = self.do_once(data.clone())
         self.log('val_loss', loss, batch_size=count_batches(data))
-
-        for kinds, _, _ in TOPO_KINDS:
-            self.log_metrics(data_after, kinds)
 
 
     def test_step(self, data, batch_idx):

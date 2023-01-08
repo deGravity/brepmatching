@@ -131,8 +131,8 @@ def separate_batched_matches(matches: torch.Tensor,
         filtered_matches = matches[:, match_batches == b]
         filtered_matches[0] -= left_batch_offsets[b]
         filtered_matches[1] -= right_batch_offsets[b]
-        assert(0 <= filtered_matches[0].min() and filtered_matches[0].max() < left_batch_counts[b])
-        assert(0 <= filtered_matches[1].min() and filtered_matches[1].max() < right_batch_counts[b])
+        assert(filtered_matches[0].numel() == 0 or (0 <= filtered_matches[0].min() and filtered_matches[0].max() < left_batch_counts[b]))
+        assert(filtered_matches[1].numel() == 0 or (0 <= filtered_matches[1].min() and filtered_matches[1].max() < right_batch_counts[b]))
         match_list.append(filtered_matches)
     return match_list
 
@@ -189,7 +189,7 @@ def compute_metrics_2(data: HetData, kinds: str):
 
         correct_mask = (pred == gt)
         num_correct = int(correct_mask.sum().item())
-        num_true_pos = int(correct_mask.logical_and(pred >= 0).sum.item())
+        num_true_pos = int(correct_mask.logical_and(pred >= 0).sum().item())
         num_true_neg = num_correct - num_true_pos
 
         incorrect_mask = (pred != gt)
@@ -200,13 +200,13 @@ def compute_metrics_2(data: HetData, kinds: str):
 
         true_neg += (num_true_neg / num_gt_unmatched) if num_gt_unmatched > 0 else 1.0
         false_pos += (num_false_pos / num_gt_unmatched) if num_gt_unmatched > 0 else 0.0
-        missed += num_missed / n_topos_right
-        incorrect += num_wrong_pos / num_gt_matched
-        true_pos_and_neg += num_correct / n_topos_right
-        incorrect_and_false_pos += (num_wrong_pos + num_false_pos) / n_topos_right
+        missed += (num_missed / n_topos_right) if n_topos_right > 0 else 0.0
+        incorrect += (num_wrong_pos / num_gt_matched) if num_gt_matched > 0 else 0.0
+        true_pos_and_neg += (num_correct / n_topos_right) if n_topos_right > 0 else 1.0
+        incorrect_and_false_pos += ((num_wrong_pos + num_false_pos) / n_topos_right) if n_topos_right > 0 else 0.0
+        precision += (num_true_pos / num_matched) if num_matched > 0 else 1.0
+        recall += (num_true_pos / num_gt_matched) if num_gt_matched > 0 else 1.0
 
-        precision += num_true_pos / num_matched
-        recall += num_true_pos / num_gt_matched
     true_neg /= n_batches
     false_pos /= n_batches
     missed /= n_batches
