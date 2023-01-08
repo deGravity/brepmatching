@@ -55,8 +55,9 @@ def zip_apply_2(network1, network2, zipped_data):
     return network1(left), network2(right)
 
 
-def count_batches(data):
-    return data.left_faces_batch[-1]+1 #Todo: is there a better way to count batches?
+def count_batches(data: HetData) -> int:
+    #Todo: is there a better way to count batches?
+    return int(max(data.left_faces_batch[-1].item(), data.right_faces_batch[-1].item())) + 1
 
 
 def greedy_matching(adjacency_matrices):
@@ -102,13 +103,15 @@ def greedy_matching(adjacency_matrices):
         all_matching_scores.append(matching_scores)
     return all_matches, all_matching_scores
 
-def separate_batched_matches(matches, left_topo_batches, right_topo_batches):
+def separate_batched_matches(matches: torch.Tensor,
+                             left_topo_batches: torch.Tensor,
+                             right_topo_batches: torch.Tensor) -> list[torch.Tensor]:
     """
     given a 2xn tensor of matches, and the batches tensor of the left and right nodes into which the matches index,
     return a list of b matches, with local indices within each instance
     """
     match_list = []
-    num_batches = left_topo_batches[-1] + 1
+    num_batches = int(max(left_topo_batches[-1].item(), right_topo_batches[-1].item())) + 1
     match_batches = left_topo_batches[matches[0]]
     left_batch_counts = [(left_topo_batches == b).sum() for b in range(num_batches)]
     right_batch_counts = [(right_topo_batches == b).sum() for b in range(num_batches)]
@@ -128,6 +131,8 @@ def separate_batched_matches(matches, left_topo_batches, right_topo_batches):
         filtered_matches = matches[:, match_batches == b]
         filtered_matches[0] -= left_batch_offsets[b]
         filtered_matches[1] -= right_batch_offsets[b]
+        assert(0 <= filtered_matches[0].min() and filtered_matches[0].max() < left_batch_counts[b])
+        assert(0 <= filtered_matches[1].min() and filtered_matches[1].max() < right_batch_counts[b])
         match_list.append(filtered_matches)
     return match_list
 
@@ -141,6 +146,78 @@ def batch_matches(matches, left_topo_batches, right_topo_batches):
     batch_left_inds = [(left_topo_batches == j).nonzero()[0] for j in range(num_batches)]
     batch_right_inds = [(right_topo_batches == j).nonzero()[0] for j in range(num_batches)]
     return sum([[[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in matches[b]] for b in range(num_batches)], [])
+
+def compute_metrics_2(data: HetData, kinds: str):
+    cur_matches = data[f"cur_{kinds}_matches"]  # assume non-empty
+    gt_matches = data[f"{kinds}_matches"]       # assume non-empty
+
+    device = cur_matches.device
+
+    batch_left = data[f"left_{kinds}_batch"]
+    batch_right = data[f"right_{kinds}_batch"]
+
+    cur_matches_unbatched = separate_batched_matches(cur_matches, batch_left, batch_right)
+    gt_matches_unbatched = separate_batched_matches(gt_matches, batch_left, batch_right)
+
+    n_batches = len(cur_matches_unbatched)
+
+    true_neg = 0.0
+    false_pos = 0.0
+    missed = 0.0
+    incorrect = 0.0
+    true_pos_and_neg = 0.0
+    incorrect_and_false_pos = 0.0
+    precision = 0.0
+    recall = 0.0
+    for b in range(n_batches):
+        n_topos_left: int = (batch_left == b).sum()
+        n_topos_right: int = (batch_right == b).sum()
+
+        cur_matches_b = cur_matches_unbatched[b]
+        gt_matches_b = gt_matches_unbatched[b]
+        
+        pred = torch.full((n_topos_right, ), -1, device=device)
+        pred[cur_matches_b[1]] = cur_matches_b[0]
+
+        gt = torch.full((n_topos_right, ), -1, device=device)
+        gt[gt_matches_b[1]] = gt_matches_b[0]
+
+        num_gt_matched = int((gt >= 0).sum().item())
+        num_gt_unmatched = n_topos_right - num_gt_matched
+
+        num_matched = int((pred >= 0).sum().item())
+
+        correct_mask = (pred == gt)
+        num_correct = int(correct_mask.sum().item())
+        num_true_pos = int(correct_mask.logical_and(pred >= 0).sum.item())
+        num_true_neg = num_correct - num_true_pos
+
+        incorrect_mask = (pred != gt)
+        num_incorrect = int(incorrect_mask.sum())
+        num_false_pos = int((gt[pred >= 0] == -1).sum())
+        num_missed = int((gt[pred == -1] >= 0).sum())
+        num_wrong_pos = num_incorrect - num_false_pos - num_missed
+
+        true_neg += (num_true_neg / num_gt_unmatched) if num_gt_unmatched > 0 else 1.0
+        false_pos += (num_false_pos / num_gt_unmatched) if num_gt_unmatched > 0 else 0.0
+        missed += num_missed / n_topos_right
+        incorrect += num_wrong_pos / num_gt_matched
+        true_pos_and_neg += num_correct / n_topos_right
+        incorrect_and_false_pos += (num_wrong_pos + num_false_pos) / n_topos_right
+
+        precision += num_true_pos / num_matched
+        recall += num_true_pos / num_gt_matched
+    true_neg /= n_batches
+    false_pos /= n_batches
+    missed /= n_batches
+    incorrect /= n_batches
+    true_pos_and_neg /= n_batches
+    incorrect_and_false_pos /= n_batches
+    precision /= n_batches
+    recall /= n_batches
+
+    return true_neg, false_pos, missed, incorrect, true_pos_and_neg, \
+           incorrect_and_false_pos, precision, recall
 
 
 def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type, thresholds):

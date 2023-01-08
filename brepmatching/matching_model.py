@@ -5,7 +5,7 @@ from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter, Linear, Sequential
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
-from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg, separate_batched_matches
+from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg, separate_batched_matches, compute_metrics_2
 from brepmatching.loss import *
 from automate import HetData
 
@@ -134,6 +134,8 @@ class MatchingModel(pl.LightningModule):
                 l_count = (data[f"left_{kinds}_batch"] == b).sum()
                 r_count = (data[f"right_{kinds}_batch"] == b).sum()
                 x[l_offset:l_offset + l_count, r_offset:r_offset + r_count] = True
+                l_offset += l_count
+                r_offset += r_count
             masks[k] = x
         return masks
     
@@ -205,6 +207,11 @@ class MatchingModel(pl.LightningModule):
 
             # take first maximum score
             l, r = (int(x.item()) for x in (scores[mx_k] == mx_score).logical_and(cur_masks[mx_k]).nonzero()[0])
+            
+            lb = data[f"left_{mx_kinds}_batch"]
+            rb = data[f"right_{mx_kinds}_batch"]
+            assert(lb[l] == rb[r])
+
             # add (l, r) to matches
             setattr(data, f"cur_{mx_kinds}_matches",
                 torch.cat((data[f"cur_{mx_kinds}_matches"], torch.tensor([[l], [r]], device=self.device)), dim=-1))
@@ -256,9 +263,10 @@ class MatchingModel(pl.LightningModule):
     
 
     def validation_epoch_end(self, outputs):
-        self.log_final_metrics('faces')
-        self.log_final_metrics('edges')
-        self.log_final_metrics('vertices')
+        # self.log_final_metrics('faces')
+        # self.log_final_metrics('edges')
+        # self.log_final_metrics('vertices')
+        pass
 
 
     def test_epoch_end(self, outputs):
@@ -266,7 +274,7 @@ class MatchingModel(pl.LightningModule):
     
 
     def _log_baselines(self, data, topo_type):
-        batch_size = count_batches(data).item()
+        batch_size = count_batches(data)
         baseline_matches = getattr(data, 'bl_exact_' + topo_type + '_matches')
         separate_matches = separate_batched_matches(baseline_matches, getattr(data, 'left_'+topo_type+'_batch'), getattr(data, 'right_'+topo_type+'_batch'))
         separate_matches = [match_tensor.T.cpu().numpy() for match_tensor in separate_matches]
@@ -281,24 +289,37 @@ class MatchingModel(pl.LightningModule):
 
 
     
-    def log_metrics(self, data: HetData, topo_type):
-        if self.log_baselines:
-            self._log_baselines(data, topo_type)
-
-        batch_size = count_batches(data).item()
-        cur_matches = data[f"cur_{topo_type}_matches"]
-        separate_matches = separate_batched_matches(cur_matches, getattr(data, 'left_'+topo_type+'_batch'), getattr(data, 'right_'+topo_type+'_batch'))
-        separate_matches = [match_tensor.T.cpu().numpy() for match_tensor in separate_matches]
-
-        truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy = compute_metrics(data, separate_matches, None, topo_type, [-1])
-        self.averages[topo_type + '_recall'](recall, batch_size)
-        self.averages[topo_type + '_precision'](precision, batch_size)
-        self.averages[topo_type + '_falsepositives'](falsepositives, batch_size)
-        self.averages[topo_type + '_true_positives_and_negatives'](true_positives_and_negatives, batch_size)
-        self.averages[topo_type + '_incorrect_and_falsepositive'](incorrect_and_falsepositive, batch_size)
-        self.averages[topo_type + '_missed'](missed, batch_size)
+    def log_metrics(self, data: HetData, kinds: str):
+        # if self.log_baselines:
+            # self._log_baselines(data, topo_type)
         
-        self.log('right2left_matched_accuracy/' + topo_type, right2left_matched_accuracy, batch_size = batch_size)
+        batch_size = count_batches(data)
+        true_neg, false_pos, missed, incorrect, true_pos_and_neg, incorrect_and_false_pos, \
+            precision, recall = compute_metrics_2(data, kinds)
+
+        self.log(f"val/{kinds}/true_neg", true_neg, batch_size=batch_size)
+        self.log(f"val/{kinds}/false_pos", false_pos, batch_size=batch_size)
+        self.log(f"val/{kinds}/missed", missed, batch_size=batch_size)
+        self.log(f"val/{kinds}/incorrect", incorrect, batch_size=batch_size)
+        self.log(f"val/{kinds}/true_pos_and_neg", true_pos_and_neg, batch_size=batch_size)
+        self.log(f"val/{kinds}/incorrect_and_false_pos", incorrect_and_false_pos, batch_size=batch_size)
+        self.log(f"val/{kinds}/precision", precision, batch_size=batch_size)
+        self.log(f"val/{kinds}/recall", recall, batch_size=batch_size)
+
+        # batch_size = count_batches(data)
+        # cur_matches = data[f"cur_{topo_type}_matches"]
+        # separate_matches = separate_batched_matches(cur_matches, getattr(data, 'left_'+topo_type+'_batch'), getattr(data, 'right_'+topo_type+'_batch'))
+        # separate_matches = [match_tensor.T.cpu().numpy() for match_tensor in separate_matches]
+
+        # truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy = compute_metrics(data, separate_matches, None, topo_type, [-1])
+        # self.averages[topo_type + '_recall'](recall, batch_size)
+        # self.averages[topo_type + '_precision'](precision, batch_size)
+        # self.averages[topo_type + '_falsepositives'](falsepositives, batch_size)
+        # self.averages[topo_type + '_true_positives_and_negatives'](true_positives_and_negatives, batch_size)
+        # self.averages[topo_type + '_incorrect_and_falsepositive'](incorrect_and_falsepositive, batch_size)
+        # self.averages[topo_type + '_missed'](missed, batch_size)
+        
+        # self.log('right2left_matched_accuracy/' + topo_type, right2left_matched_accuracy, batch_size = batch_size)
         # fig_truenegative = plot_metric(truenegatives, thresholds, 'Percent Correct (unmatched)')
         # fig_falsepositive = plot_metric(falsepositives, thresholds, 'Percent False Positive (unmatched)')
         # fig_missed = plot_metric(missed, thresholds, 'Percent Missed (matched)')
