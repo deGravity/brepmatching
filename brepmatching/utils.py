@@ -114,11 +114,12 @@ def separate_batched_matches(matches, left_topo_batches, right_topo_batches):
     right_batch_counts = [(right_topo_batches == b).sum() for b in range(num_batches)]
     left_batch_offsets = []
     right_batch_offsets = []
-    offset = torch.tensor(0)
+    device = matches.device
+    offset = torch.tensor(0, device=device)
     for size in left_batch_counts:
         left_batch_offsets.append(offset.clone())
         offset += size
-    offset = torch.tensor(0)
+    offset = torch.tensor(0, device=device)
     for size in right_batch_counts:
         right_batch_offsets.append(offset.clone())
         offset += size
