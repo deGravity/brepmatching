@@ -118,53 +118,55 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
 
     return data
 
+def load_data(zip_path=None, cache_path=None):
+    if cache_path is not None:
+        if os.path.exists(cache_path):
+            return torch.load(cache_path)
+
+    assert(zip_path is not None) # Must provide a zip path if cache does not exist
+    preprocessed_data = []
+    with ZipFile(zip_path, 'r') as zf:
+        with zf.open('data/VariationData/all_variations.csv','r') as f:
+            variations = pd.read_csv(f)
+        if 'fail' in variations.columns:
+            variations = variations[variations.fail == 0]
+        orig_id_dict = dict((k,v) for v,k in enumerate(variations.ps_orig.unique()))
+        group = []
+        original_index = []
+        for i in tqdm(range(len(variations)), "Preprocessing Data"):
+            variation_record = variations.iloc[i]
+            variation_index = variations.index[i]
+
+            m_path = 'data/Matches/' + variation_record.matchFile
+            o_path = 'data/BrepsWithReference/' + variation_record.ps_orig
+            v_path = 'data/BrepsWithReference/' + variation_record.ps_var
+
+            data = make_match_data(zf, o_path, v_path, m_path)
+            if data is not None:
+                group.append(orig_id_dict[variation_record.ps_orig])
+                preprocessed_data.append(data)
+                original_index.append(variation_index)
+    group = torch.tensor(group).long()
+    cached_data = {
+        'preprocessed_data':preprocessed_data,
+        'group':group,
+        'original_index':original_index
+    }
+    if cache_path is not None:
+        os.makedirs(os.path.dirname(cache_path),exist_ok=True)
+        torch.save(cached_data, cache_path)
+    return cached_data
+
+
 follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'faces_matches', 'edges_matches', 'vertices_matches']
 class BRepMatchingDataset(torch.utils.data.Dataset):
-    def __init__(self, zip_path=None, cache_path=None, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None):
+    def __init__(self, cached_data, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None):
         self.debug = debug
         self.transforms = compose(*transforms[::-1]) if transforms else None
-        do_preprocess = True
-        if cache_path is not None:
-            if os.path.exists(cache_path):
-                cached_data = torch.load(cache_path)
-                self.preprocessed_data = cached_data['preprocessed_data']
-                self.group = cached_data['group']
-                self.original_index = cached_data['original_index']
-                do_preprocess = False
 
-        if do_preprocess:
-            assert(zip_path is not None) # Must provide a zip path if cache does not exist
-            self.preprocessed_data = []
-            with ZipFile(zip_path, 'r') as zf:
-                with zf.open('data/VariationData/all_variations.csv','r') as f:
-                    variations = pd.read_csv(f)
-                if 'fail' in variations.columns:
-                    variations = variations[variations.fail == 0]
-                orig_id_dict = dict((k,v) for v,k in enumerate(variations.ps_orig.unique()))
-                self.group = []
-                self.original_index = []
-                for i in tqdm(range(len(variations)), "Preprocessing Data"):
-                    variation_record = variations.iloc[i]
-                    variation_index = variations.index[i]
-
-                    m_path = 'data/Matches/' + variation_record.matchFile
-                    o_path = 'data/BrepsWithReference/' + variation_record.ps_orig
-                    v_path = 'data/BrepsWithReference/' + variation_record.ps_var
-
-                    data = make_match_data(zf, o_path, v_path, m_path)
-                    if data is not None:
-                        self.group.append(orig_id_dict[variation_record.ps_orig])
-                        self.preprocessed_data.append(data)
-                        self.original_index.append(variation_index)
-            self.group = torch.tensor(self.group).long()
-            if cache_path is not None:
-                os.makedirs(os.path.dirname(cache_path),exist_ok=True)
-                cached_data = {
-                    'preprocessed_data':self.preprocessed_data,
-                    'group':self.group,
-                    'original_index':self.original_index
-                }
-                torch.save(cached_data, cache_path)
+        self.preprocessed_data = cached_data['preprocessed_data']
+        self.group = cached_data['group']
+        self.original_index = cached_data['original_index']
         
         self.mode = mode
         unique_groups = self.group.unique()
@@ -257,13 +259,14 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         transforms = []
         if self.exact_match_labels:
             transforms.append(use_bl_exact_match_labels)
-        self.train_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='train', test_identity=self.test_identity, transforms=transforms)
+        cached_data = load_data(zip_path=self.zip_path, cache_path=self.cache_path)
+        self.train_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='train', test_identity=self.test_identity, transforms=transforms)
         if self.single_set:
             self.test_ds = self.train_ds
             self.val_ds = self.train_ds
         else:
-            self.test_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='test', test_identity=self.test_identity, transforms=transforms)
-            self.val_ds = BRepMatchingDataset(zip_path=self.zip_path, cache_path=self.cache_path, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='val', test_identity=self.test_identity, transforms=transforms)
+            self.test_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='test', test_identity=self.test_identity, transforms=transforms)
+            self.val_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='val', test_identity=self.test_identity, transforms=transforms)
 
     def train_dataloader(self):
         return DataLoader(self.train_ds, batch_size=self.batch_size, num_workers=self.num_workers,shuffle=self.shuffle, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
