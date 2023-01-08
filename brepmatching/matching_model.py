@@ -1,14 +1,22 @@
 import pytorch_lightning as pl
 from brepmatching.models import PairEmbedder
 import torch
-from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter
+from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter, Linear, Sequential, ReLU, Sigmoid, BCELoss
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
 from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg, separate_batched_matches
 from brepmatching.loss import *
+from automate import HetData
 
 #from torch.profiler import profile, record_function, ProfilerActivity
+
+TOPO_KINDS: list[tuple[str, str, str]] = [
+  ("faces", "face", "f"),
+  # ("loops", "loop", "l"),
+  ("edges", "edge", "e"),
+  ("vertices", "vertex", "v")
+]
 
 class MatchingModel(pl.LightningModule):
 
@@ -46,14 +54,30 @@ class MatchingModel(pl.LightningModule):
         self.min_topos = min_topos
         self.log_baselines = log_baselines
         
-        self.pair_embedder = PairEmbedder(f_in_width, l_in_width, e_in_width, v_in_width, sbgcn_size, fflayers, batch_norm=batch_norm, mp_exact_matches=mp_exact_matches, mp_overlap_matches=mp_overlap_matches, use_uvnet_features=use_uvnet_features, crv_emb_dim=crv_emb_dim, srf_emb_dim=srf_emb_dim)
+        self.pair_embedder = PairEmbedder(
+            s_face=f_in_width,
+            s_loop=l_in_width,
+            s_edge=e_in_width,
+            s_vert=v_in_width,
+            embedding_size=sbgcn_size,
+            k=fflayers,
+            batch_norm=batch_norm,
+            mp_exact_matches=mp_exact_matches,
+            mp_overlap_matches=mp_overlap_matches,
+            mp_cur_matches=True, # TODO: expose parameter
+            use_uvnet_features=use_uvnet_features,
+            crv_emb_dim=crv_emb_dim,
+            srf_emb_dim=srf_emb_dim)
 
-        if loss == 'NPairs':
-            self.loss = N_pairs_loss(temperature=temperature)
-        elif loss == 'TupletMargin':
-            self.loss = TupletMarginLoss(margin=margin, scale = loss_scale)
-        else:
-            raise NotImplementedError("Unknown loss function")
+        # TODO: expose variables
+        self.mlp = Sequential(
+            Linear(sbgcn_size * 2, sbgcn_size),
+            ReLU(),
+            Linear(sbgcn_size, 1),
+            Sigmoid()
+        )
+        self.threshold = 0.75
+        self.loss = BCELoss(reduction="sum") 
 
         self.softmax = LogSoftmax(dim=1)
         self.batch_norm = batch_norm
@@ -70,122 +94,165 @@ class MatchingModel(pl.LightningModule):
 
         self.save_hyperparameters()
     
-
-    def forward(self, data):
-        origs, vars = self.pair_embedder(data)
-        return tuple(F.normalize(orig, dim=1) for orig in origs), tuple(F.normalize(var, dim=1) for var in vars)
-
-    def sample_matches(self, data, topo_type, device='cuda'):
+    def forward(self, data: HetData, masks: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """
-        Given n topos of type `topo_type`,
-        returns a nxk tensor where each row is indices of k topologies that do not match the given topo
-        and a mask of which matches to keep (ones belonging to batches with too few right topos are disabled)
-        """
-        #TODO: Do this in the data loader as a transform
-        with torch.no_grad():
-            num_batches = count_batches(data)
-            batch_offsets = []
-            batch_offset = torch.tensor(0)
-            for batch in range(num_batches):
-                batch_offsets.append(batch_offset)
-                batch_size = (getattr(data, 'right_' + topo_type + '_batch') == batch).sum()
-                batch_offset = batch_offset.clone() + batch_size
-            
-            match_batch_offsets = []
-            batch_offset = torch.tensor(0)
-            for batch in range(num_batches):
-                match_batch_offsets.append(batch_offset)
-                batch_size = (getattr(data, topo_type + '_matches_batch') == batch).sum()
-                batch_offset = batch_offset.clone() + batch_size
+        Returns a dict of ("f", "e", "v") to scores (nl, nr) tensor.
 
-            allperms = []
-            keepmask = torch.ones(getattr(data, topo_type + '_matches_batch').shape[0], dtype=torch.bool)
-            for batch, (offset, match_offset) in enumerate(zip(batch_offsets, match_batch_offsets)):
-                batch_size = (getattr(data, 'right_' + topo_type + '_batch') == batch).sum()
-                match_batch_size = (getattr(data, topo_type + '_matches_batch') == batch).sum()
-                if batch_size > self.min_topos:
-                    perms_batch = []
-                    for m in range(match_batch_size):
-                        match_index = m + match_offset
-                        perm = torch.randperm(batch_size, device=device) + offset
-                        perm = perm[perm != getattr(data, topo_type + '_matches')[1,match_index]]
-                        perms_batch.append(perm)
-                    allperms += perms_batch
-                else:
-                    keepmask[match_offset:match_offset+match_batch_size] = 0
-            mincount = min([len(perm) for perm in allperms])
-            mincount = min(mincount, self.num_negative)
-            allperms = [perm[:mincount] for perm in allperms]
-            allperms = torch.stack(allperms)
-        return allperms, keepmask #keepmask: mask of which matches to keep (ones belonging to batches with too few right topos are disabled)
+        `data` must have "cur_{kinds}_matches"
+        """
+        left_emb, right_emb = self.pair_embedder(data)
+
+        left = {}
+        right = {}
+        left["f"], left["e"], left["v"] = left_emb
+        right["f"], right["e"], right["v"] = right_emb
+
+        scores = {}
+        for _, _, k in TOPO_KINDS:
+            left_k = left[k] # shape (nl, 64)
+            right_k = right[k] # shape (nr, 64)
+
+            # create pairwise concatenation
+            grid_l, grid_r = torch.meshgrid(torch.arange(left_k.shape[0], device=self.device),
+                                            torch.arange(right_k.shape[0], device=self.device))
+            pw_emb = torch.cat((left_k[grid_l[masks[k]]], right_k[grid_r[masks[k]]]), dim=-1) # shape (nl, nr, 128)
+
+            sc = torch.zeros(masks[k].shape, device=self.device) # shape (nl, nr)
+            sc[masks[k]] = self.mlp(pw_emb).squeeze(-1)
+            scores[k] = sc
+        return scores
+
+    def init_masks(self, data: HetData) -> dict[str, torch.Tensor]:
+        num_batches = max(data.left_faces_batch[-1], data.right_faces_batch[-1]) + 1
+        masks = {}
+        for kinds, _, k in TOPO_KINDS:
+            x = torch.zeros((data[f"left_{kinds}"].shape[0], data[f"right_{kinds}"].shape[0]),
+                dtype=torch.bool, device=self.device)
+            l_offset = 0
+            r_offset = 0
+            for b in range(num_batches):
+                l_count = (data[f"left_{kinds}_batch"] == b).sum()
+                r_count = (data[f"right_{kinds}_batch"] == b).sum()
+                x[l_offset:l_offset + l_count, r_offset:r_offset + r_count] = True
+            masks[k] = x
+        return masks
     
-    def compute_loss(self, allperms, data, f_orig, f_var, topo_type, mask):
-        matches_masked = getattr(data, topo_type + '_matches')[:, mask]
-        fraction_matches_kept = matches_masked.shape[1] / mask.shape[0]
-        self.log('fraction_matches_kept/' + topo_type, fraction_matches_kept, batch_size=count_batches(data), on_epoch=True)
-        f_orig_matched = f_orig[matches_masked[0]]
-        f_var_matched = f_var[matches_masked[1]]
-        f_matched_sim = torch.sum(f_orig_matched * f_var_matched, dim=-1)
+    def init_gt_scores(self, data: HetData) -> dict[str, torch.Tensor]:
+        gt_scores = {}
+        for kinds, _, k in TOPO_KINDS:
+            score = torch.zeros((data[f"left_{kinds}"].shape[0], data[f"right_{kinds}"].shape[0]), device=self.device)
+            score[data[f"{kinds}_matches"][0], data[f"{kinds}_matches"][1]] = 1.0
+            gt_scores[k] = score
+        return gt_scores
 
-        f_var_unmatched = f_var[allperms]
-        f_orig_unmatched = f_orig_matched.expand(f_var_unmatched.shape[1], f_var_unmatched.shape[0], f_var_unmatched.shape[2]).transpose(0, 1)
-        f_unmatched_sim = torch.sum(f_orig_unmatched * f_var_unmatched, dim=-1)
+    def compute_loss(self,
+                     scores: dict[str, torch.Tensor],
+                     gt_scores: dict[str, torch.Tensor],
+                     masks: dict[str, torch.Tensor]) -> torch.Tensor:
+        loss = torch.tensor(0.0, device=self.device)
+        numel = 0
+        for _, _, k in TOPO_KINDS:
+            loss += self.loss(scores[k][masks[k]], gt_scores[k][masks[k]])
+            numel += scores[k][masks[k]].numel()
+        return loss / numel if numel != 0 else torch.tensor(0.0, device=self.device)
 
-        f_sim = torch.cat([f_matched_sim.unsqueeze(-1), f_unmatched_sim], dim=1)
+
+    def do_iteration(self, data: HetData) -> tuple[torch.Tensor, HetData]:
+        """
+        Do the iteration matching the highest scored candidate until the score is below the threshold
+
+        Not backwardable.
+
+        Returns the loss tensor, `HetData` containing "cur_{kinds}_matches" for further evaluation
+        """
+
+        cur_masks = self.init_masks(data)
+
+        # setup ground truth scores
+        gt_scores = self.init_gt_scores(data)
+
+        # prepare current match (to coincident)
+        for kinds, _, _ in TOPO_KINDS:
+            setattr(data, f"cur_{kinds}_matches",
+                data[f"bl_exact_{kinds}_matches"].clone())
+            data.__edge_sets__[f"cur_{kinds}_matches"] = [f"left_{kinds}", f"right_{kinds}"]
         
-        return self.loss(f_sim)
+        loss = torch.tensor(0.0, device=self.device)
+        n_iter = 0
+        while True:
+            # score candidates
+            scores = self(data, cur_masks)
 
+            # find max score
+            mx_score = -1.0
+            mx_k = "x"
+            mx_kinds = "xxx"
+            for kinds, _, k in TOPO_KINDS:
+                tmp = scores[k][cur_masks[k]]
+                if tmp.numel() != 0:
+                    cur_mx = tmp.max().item()
+                    if cur_mx > mx_score:
+                        mx_score = cur_mx
+                        mx_k = k
+                        mx_kinds = kinds
+
+            # compute loss
+            loss += self.compute_loss(scores, gt_scores, cur_masks)
+            n_iter += 1
+
+            if mx_score < self.threshold:
+                break
+
+            # take first maximum score
+            l, r = (int(x.item()) for x in (scores[mx_k] == mx_score).logical_and(cur_masks[mx_k]).nonzero()[0])
+            # add (l, r) to matches
+            setattr(data, f"cur_{mx_kinds}_matches",
+                torch.cat((data[f"cur_{mx_kinds}_matches"], torch.tensor([[l], [r]], device=self.device)), dim=-1))
+
+            # do not consider l and r again
+            cur_masks[mx_k][l, :] = False
+            cur_masks[mx_k][:, r] = False
+        
+        return loss / n_iter, data
 
     def training_step(self, data, batch_idx):
-        face_allperms, faces_match_mask = self.sample_matches(data, 'faces', device=data.left_faces.device)
-        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges', device=data.left_faces.device)
-        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices', device=data.left_faces.device)
-        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces', faces_match_mask)
-        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
-        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
-        loss = f_loss + e_loss + v_loss
+        cur_data = data.clone()
+        masks = self.init_masks(cur_data)
+        gt_scores = self.init_gt_scores(cur_data)
+
+        # prepare current match (to randomly 50% of gt_match)
+        for kinds, _, _ in TOPO_KINDS:
+            n_gt_matches = cur_data[f"{kinds}_matches"].shape[1]
+            indices = torch.randperm(n_gt_matches)[:n_gt_matches // 2]
+            setattr(cur_data, f"cur_{kinds}_matches",
+                cur_data[f"{kinds}_matches"][:, indices])
+            cur_data.__edge_sets__[f"cur_{kinds}_matches"] = [f"left_{kinds}", f"right_{kinds}"]
+        
+        scores = self(cur_data, masks)
+        loss = self.compute_loss(scores, gt_scores, masks)
+        
+        assert(not loss.isnan())
 
         batch_size=count_batches(data)
-        self.log('effective_batch_size/face', torch.tensor(face_allperms.shape[1], dtype=torch.float), on_epoch=True, batch_size=batch_size)
-        self.log('effective_batch_size/edge', torch.tensor(edge_allperms.shape[1], dtype=torch.float), on_epoch=True, batch_size=batch_size)
-        self.log('effective_batch_size/vert', torch.tensor(vert_allperms.shape[1], dtype=torch.float), on_epoch=True, batch_size=batch_size)
         self.log('train_loss/step', loss, on_step=True, on_epoch=False, batch_size=batch_size)
         self.log('train_loss/epoch', loss, on_step=False, on_epoch=True, batch_size=batch_size)
         return loss
 
 
     def validation_step(self, data, batch_idx):
-        face_allperms, faces_match_mask = self.sample_matches(data, 'faces', device=data.left_faces.device)
-        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges', device=data.left_faces.device)
-        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices', device=data.left_faces.device)
-        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces', faces_match_mask)
-        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
-        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
-        loss = f_loss + e_loss + v_loss
+        loss, data_after = self.do_iteration(data.clone())
         self.log('val_loss', loss, batch_size=count_batches(data))
 
-        #with profile(activities=[
-        #        ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-        #    with record_function("model_inference"):
-        f_acc = self.log_metrics(data, f_orig, f_var, 'faces')
-        e_acc = self.log_metrics(data, e_orig, e_var, 'edges')
-        v_acc = self.log_metrics(data, v_orig, v_var, 'vertices')
-    
-        #print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+        for kinds, _, _ in TOPO_KINDS:
+            self.log_metrics(data_after, kinds)
 
 
     def test_step(self, data, batch_idx):
-        face_allperms, faces_match_mask = self.sample_matches(data, 'faces', device=data.left_faces.device)
-        edge_allperms, edges_match_mask = self.sample_matches(data, 'edges', device=data.left_faces.device)
-        vert_allperms, verts_match_mask = self.sample_matches(data, 'vertices', device=data.left_faces.device)
-        (f_orig, e_orig, v_orig), (f_var, e_var, v_var) = self(data)
-        f_loss = self.compute_loss(face_allperms, data, f_orig, f_var, 'faces', faces_match_mask)
-        e_loss = self.compute_loss(edge_allperms, data, e_orig, e_var, 'edges', edges_match_mask)
-        v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
-        loss = f_loss + e_loss + v_loss
+        loss, data_after = self.do_iteration(data)
         self.log('test_loss', loss, batch_size=count_batches(data))
+
+        for kinds, _, _ in TOPO_KINDS:
+            self.log_metrics(data_after, kinds)
     
 
     def validation_epoch_end(self, outputs):
@@ -197,28 +264,6 @@ class MatchingModel(pl.LightningModule):
     def test_epoch_end(self, outputs):
         self.validation_epoch_end(outputs)
     
-
-    def allscores(self, data, orig_emb, var_emb, topo_type):
-        num_batches = count_batches(data)
-        #batch_left_inds = []
-        #batch_right_inds = []
-        batch_left_feats = []
-        batch_right_feats = []
-        for j in range(num_batches):
-            inds_l = (getattr(data, 'left_'+topo_type+'_batch') == j)
-            inds_r = (getattr(data, 'right_'+topo_type+'_batch') == j)
-            #batch_left_inds.append(inds_l)
-            #batch_right_inds.append(inds_r)
-            batch_left_feats.append(orig_emb[inds_l])
-            batch_right_feats.append(var_emb[inds_r])
-
-        similarity_adj = []
-        for b in range(num_batches):
-            sims = batch_left_feats[b] @ batch_right_feats[b].T
-            similarity_adj.append(sims)
-
-        return similarity_adj#, batch_left_inds, batch_right_inds
-
 
     def _log_baselines(self, data, topo_type):
         batch_size = count_batches(data).item()
@@ -236,19 +281,16 @@ class MatchingModel(pl.LightningModule):
 
 
     
-    def log_metrics(self, data, orig_emb, var_emb, topo_type):
+    def log_metrics(self, data: HetData, topo_type):
         if self.log_baselines:
             self._log_baselines(data, topo_type)
 
         batch_size = count_batches(data).item()
-        thresholds = np.linspace(-1, 1, self.num_thresholds)
+        cur_matches = data[f"cur_{topo_type}_matches"]
+        separate_matches = separate_batched_matches(cur_matches, getattr(data, 'left_'+topo_type+'_batch'), getattr(data, 'right_'+topo_type+'_batch'))
+        separate_matches = [match_tensor.T.cpu().numpy() for match_tensor in separate_matches]
 
-        
-        scores = self.allscores(data, orig_emb, var_emb, topo_type)
-        scores = list(map(lambda t: t.cpu().numpy(), scores))
-        greedy_matches_all, greedy_scores_all = greedy_matching(scores)
-
-        truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy = compute_metrics(data, greedy_matches_all, greedy_scores_all, topo_type, thresholds)
+        truenegatives, falsepositives, missed,  incorrect, true_positives_and_negatives, incorrect_and_falsepositive, precision, recall, right2left_matched_accuracy = compute_metrics(data, separate_matches, None, topo_type, [-1])
         self.averages[topo_type + '_recall'](recall, batch_size)
         self.averages[topo_type + '_precision'](precision, batch_size)
         self.averages[topo_type + '_falsepositives'](falsepositives, batch_size)
