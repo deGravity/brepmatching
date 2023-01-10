@@ -4,6 +4,7 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from typing import Optional
 
 def zip_hetdata(left, right):
     common_keys = set(left.keys).intersection(right.keys)
@@ -103,6 +104,64 @@ def greedy_matching(adjacency_matrices):
         all_matching_scores.append(matching_scores)
     return all_matches, all_matching_scores
 
+def greedy_match_2(scores: torch.Tensor, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Given the scores matrix `scores`, greedily match based on descending scores.
+
+    Complexity `O(n * GPU(n ^ 2))`
+
+    Returns:
+    - `all_matches`: 2 x m tensor
+    - `all_scores`: m tensor
+    """
+    if mask == None:
+        mask = torch.ones_like(scores, dtype=torch.bool, device=scores.device)
+    else:
+        mask = mask.clone()
+
+    all_matches = []
+    all_scores = []
+
+    while torch.any(mask):
+        mx = scores[mask].max()
+
+        # take first maximum score
+        l, r = (int(x.item()) for x in (scores == mx).logical_and(mask).nonzero()[0])
+
+        # add (l, r) to matches
+        all_matches.append([l, r])
+        all_scores.append(mx)
+
+        # do not consider l and r again
+        mask[l, :] = False
+        mask[:, r] = False
+
+    return torch.tensor(all_matches, dtype=torch.long, device=scores.device).T, \
+        torch.tensor(all_scores, device=scores.device)
+
+def separate_batched_adj_mtx(mtx: torch.Tensor,
+                             left_topo_batches: torch.Tensor,
+                             right_topo_batches: torch.Tensor) -> list[torch.Tensor]:
+    """
+    Given a batched adjacency matrix, return a list of unbatched adjacency matrices.
+
+    Assume a batch is contiguous.
+    The returned tensors are views of the original.
+    """
+
+    num_batches = int(max(left_topo_batches[-1].item(), right_topo_batches[-1].item())) + 1
+    mtx_list = []
+    l_offset = 0
+    r_offset = 0
+    for b in range(num_batches):
+        l_count = (left_topo_batches == b).sum()
+        r_count = (right_topo_batches == b).sum()
+        mtx_list.append(mtx[l_offset:l_offset + l_count, r_offset:r_offset + r_count])
+        l_offset += l_count
+        r_offset += r_count
+    return mtx_list
+
+
 def separate_batched_matches(matches: torch.Tensor,
                              left_topo_batches: torch.Tensor,
                              right_topo_batches: torch.Tensor) -> list[torch.Tensor]:
@@ -147,77 +206,78 @@ def batch_matches(matches, left_topo_batches, right_topo_batches):
     batch_right_inds = [(right_topo_batches == j).nonzero()[0] for j in range(num_batches)]
     return sum([[[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in matches[b]] for b in range(num_batches)], [])
 
-def compute_metrics_2(data: HetData, kinds: str):
-    cur_matches = data[f"cur_{kinds}_matches"]  # assume non-empty
-    gt_matches = data[f"{kinds}_matches"]       # assume non-empty
+###### METRICS ######
 
-    device = cur_matches.device
+NUM_METRICS = 8
+
+def compute_metrics_impl(matches: torch.Tensor,
+                         gt_matches: torch.Tensor,
+                         n_topos_left: int,
+                         n_topos_right: int) -> np.ndarray:
+    device = matches.device
+
+    pred = torch.full((n_topos_right, ), -1, device=device)
+    pred[matches[1]] = matches[0]
+
+    gt = torch.full((n_topos_right, ), -1, device=device)
+    gt[gt_matches[1]] = gt_matches[0]
+
+    num_gt_matched = int((gt >= 0).sum().item())
+    num_gt_unmatched = n_topos_right - num_gt_matched
+
+    num_matched = int((pred >= 0).sum().item())
+
+    correct_mask = (pred == gt)
+    num_correct = int(correct_mask.sum().item())
+    num_true_pos = int(correct_mask.logical_and(pred >= 0).sum().item())
+    num_true_neg = num_correct - num_true_pos
+
+    incorrect_mask = (pred != gt)
+    num_incorrect = int(incorrect_mask.sum())
+    num_false_pos = int((gt[pred >= 0] == -1).sum())
+    num_missed = int((gt[pred == -1] >= 0).sum())
+    num_wrong_pos = num_incorrect - num_false_pos - num_missed
+
+    true_neg = (num_true_neg / num_gt_unmatched) if num_gt_unmatched > 0 else 1.0
+    false_pos = (num_false_pos / num_gt_unmatched) if num_gt_unmatched > 0 else 0.0
+    missed = (num_missed / n_topos_right) if n_topos_right > 0 else 0.0
+    incorrect = (num_wrong_pos / num_gt_matched) if num_gt_matched > 0 else 0.0
+    true_pos_and_neg = (num_correct / n_topos_right) if n_topos_right > 0 else 1.0
+    incorrect_and_false_pos = ((num_wrong_pos + num_false_pos) / n_topos_right) if n_topos_right > 0 else 0.0
+    precision = (num_true_pos / num_matched) if num_matched > 0 else 1.0
+    recall = (num_true_pos / num_gt_matched) if num_gt_matched > 0 else 1.0
+
+    return np.array([true_neg, false_pos, missed, incorrect, true_pos_and_neg,
+                     incorrect_and_false_pos, precision, recall])
+
+def compute_metrics_from_matches(data: HetData, kinds: str, matches: torch.Tensor) -> np.ndarray:
+    gt_matches = data[f"{kinds}_matches"]       # assume non-empty
 
     batch_left = data[f"left_{kinds}_batch"]
     batch_right = data[f"right_{kinds}_batch"]
 
-    cur_matches_unbatched = separate_batched_matches(cur_matches, batch_left, batch_right)
+    cur_matches_unbatched = separate_batched_matches(matches, batch_left, batch_right)
     gt_matches_unbatched = separate_batched_matches(gt_matches, batch_left, batch_right)
 
     n_batches = len(cur_matches_unbatched)
 
-    true_neg = 0.0
-    false_pos = 0.0
-    missed = 0.0
-    incorrect = 0.0
-    true_pos_and_neg = 0.0
-    incorrect_and_false_pos = 0.0
-    precision = 0.0
-    recall = 0.0
+    metrics = np.zeros(NUM_METRICS)
+
     for b in range(n_batches):
-        n_topos_left: int = (batch_left == b).sum()
-        n_topos_right: int = (batch_right == b).sum()
+        n_topos_left = int((batch_left == b).sum().item())
+        n_topos_right = int((batch_right == b).sum().item())
 
         cur_matches_b = cur_matches_unbatched[b]
         gt_matches_b = gt_matches_unbatched[b]
+
+        cur_metrics = compute_metrics_impl(
+            cur_matches_b, gt_matches_b, n_topos_left, n_topos_right)
         
-        pred = torch.full((n_topos_right, ), -1, device=device)
-        pred[cur_matches_b[1]] = cur_matches_b[0]
+        metrics += cur_metrics
+    
+    metrics /= n_batches
 
-        gt = torch.full((n_topos_right, ), -1, device=device)
-        gt[gt_matches_b[1]] = gt_matches_b[0]
-
-        num_gt_matched = int((gt >= 0).sum().item())
-        num_gt_unmatched = n_topos_right - num_gt_matched
-
-        num_matched = int((pred >= 0).sum().item())
-
-        correct_mask = (pred == gt)
-        num_correct = int(correct_mask.sum().item())
-        num_true_pos = int(correct_mask.logical_and(pred >= 0).sum().item())
-        num_true_neg = num_correct - num_true_pos
-
-        incorrect_mask = (pred != gt)
-        num_incorrect = int(incorrect_mask.sum())
-        num_false_pos = int((gt[pred >= 0] == -1).sum())
-        num_missed = int((gt[pred == -1] >= 0).sum())
-        num_wrong_pos = num_incorrect - num_false_pos - num_missed
-
-        true_neg += (num_true_neg / num_gt_unmatched) if num_gt_unmatched > 0 else 1.0
-        false_pos += (num_false_pos / num_gt_unmatched) if num_gt_unmatched > 0 else 0.0
-        missed += (num_missed / n_topos_right) if n_topos_right > 0 else 0.0
-        incorrect += (num_wrong_pos / num_gt_matched) if num_gt_matched > 0 else 0.0
-        true_pos_and_neg += (num_correct / n_topos_right) if n_topos_right > 0 else 1.0
-        incorrect_and_false_pos += ((num_wrong_pos + num_false_pos) / n_topos_right) if n_topos_right > 0 else 0.0
-        precision += (num_true_pos / num_matched) if num_matched > 0 else 1.0
-        recall += (num_true_pos / num_gt_matched) if num_gt_matched > 0 else 1.0
-
-    true_neg /= n_batches
-    false_pos /= n_batches
-    missed /= n_batches
-    incorrect /= n_batches
-    true_pos_and_neg /= n_batches
-    incorrect_and_false_pos /= n_batches
-    precision /= n_batches
-    recall /= n_batches
-
-    return true_neg, false_pos, missed, incorrect, true_pos_and_neg, \
-           incorrect_and_false_pos, precision, recall
+    return metrics
 
 
 def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type, thresholds):
@@ -304,6 +364,8 @@ def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type
 
     return np.array(truenegatives), np.array(falsepositives), np.array(missed),  np.array(incorrect), np.array(true_positives_and_negatives), np.array(incorrect_and_falsepositive), np.array(precision), np.array(recall), right2left_matched_accuracy
 
+###### PLOTTING ######
+
 def plot_metric(metric, thresholds, name):
     fig = Figure(figsize=(8, 8))
     ax = fig.add_subplot()
@@ -315,12 +377,16 @@ def plot_metric(metric, thresholds, name):
     ax.grid()
     return fig
     
-def plot_multiple_metrics(metrics, thresholds, name):
+def plot_multiple_metrics(metrics: dict[str, np.ndarray], 
+                          thresholds: np.ndarray,
+                          title: str):
     fig = Figure(figsize=(8, 8))
     ax = fig.add_subplot()
-    for j,key in enumerate(metrics):
+    for j, key in enumerate(metrics):
         if j == 0:
             color = '#0000ff'
+        elif j == 1:
+            color = '#e08c24'
         elif j == 2:
             color = '#ff0000'
         else:
@@ -328,7 +394,7 @@ def plot_multiple_metrics(metrics, thresholds, name):
         ax.plot(thresholds, metrics[key], label=key, color=color)
     ax.legend()
     ax.set_xlabel('Threshold')
-    ax.set_title(name)
+    ax.set_title(title)
     ax.set_ylim(-0.1, 1.1)
     ax.grid()
     return fig
