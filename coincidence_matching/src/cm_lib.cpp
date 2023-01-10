@@ -6,6 +6,7 @@
 #include <tuple>
 #include <assert.h>
 #include <iostream>
+#include <math.h>
 #include <cm_lib.h>
 
 const double COINCIDENCE_TOL = 1e-5;
@@ -388,10 +389,12 @@ BRepTopology read_topology(int body_id) {
 }
 
 bool points_coincident(double* p1, double* p2) {
-    double d2 = (p1[0] - p2[0])*(p1[0] - p2[0]) + 
-    (p1[1] - p2[1])*(p1[1] - p2[1]) + 
-    (p1[2] - p2[2])*(p1[2] - p2[2]);
-    return d2 <= POINT_EPSILON_2;
+    double d2 = 
+        (p1[0] - p2[0])*(p1[0] - p2[0]) + 
+        (p1[1] - p2[1])*(p1[1] - p2[1]) + 
+        (p1[2] - p2[2])*(p1[2] - p2[2]);
+    return sqrt(d2) <= COINCIDENCE_TOL;
+    //return d2 <= POINT_EPSILON_2;
 }
 
 Matching make_matching(std::string part1, std::string part2, bool exact) {

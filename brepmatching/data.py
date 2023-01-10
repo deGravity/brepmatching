@@ -63,7 +63,6 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     var_vert_map = index_dict(var_brep.vertex_export_ids)
 
     orig_id_types = get_export_id_types(orig_part_data)
-    var_id_types = get_export_id_types(var_part_data)
 
     # Setup Ground Truth Matches
     face_matches, edge_matches, vert_matches = make_match_tensors(
@@ -76,8 +75,7 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
         var_face_map, 
         var_edge_map, 
         var_vert_map,
-        orig_id_types,
-        var_id_types)
+        orig_id_types)
 
     data = zip_hetdata(orig_brep, var_brep)
     data.faces_matches = face_matches
@@ -129,16 +127,22 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     # that the ground-truth matching is based on by running exact matching
     # (the two parts should match perfectly).
     var_rename = match_parts_dict(bl_var_part_data, var_part_data, True)
-    missing_count = 0
-    for k in bl_matches:
-        if bl_matches[k]['val2'] in var_rename:
-            bl_matches[k]['val2'] = var_rename[bl_matches[k]['val2']]
-        else:
-            missing_count += 1
-    if missing_count > 0:
-        print(f'Missing Matches (OS BL): {missing_count}')
+    var_types = get_export_id_types(bl_var_part_data)
+    orig_var_types = get_export_id_types(var_part_data)
+    num_onshape_baseline_unmatched = 0
+    renamed_matches = {}
+    for k,match in bl_matches.items():
+        orig_export_id = match['val1']
+        bl_var_export_id = match['val2']
+        if bl_var_export_id in var_rename:
+            new_export_id = var_rename[bl_var_export_id]
+            assert(new_export_id in orig_var_types) # We've renamed the topo to something actually in the part
+            renamed_matches[k] = {'val1':orig_export_id, 'val2':new_export_id}
+        elif var_types[bl_var_export_id] in ['PK_CLASS_face', 'PK_CLASS_edge', 'PK_CLASS_vertex']: # Should we have matched this but didn't?
+            num_onshape_baseline_unmatched += 1
+    
     os_bl_face_matches, os_bl_edge_matches, os_bl_vert_matches = make_match_tensors(
-        bl_matches, 
+        renamed_matches, 
         export_id_hash, 
         match2tensor, 
         orig_face_map, 
@@ -147,8 +151,7 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
         var_face_map, 
         var_edge_map, 
         var_vert_map,
-        orig_id_types,
-        var_id_types)
+        orig_id_types)
     
     data.os_bl_faces_matches = os_bl_face_matches
     data.__edge_sets__['os_bl_faces_matches'] = ['left_faces', 'right_faces']
@@ -156,47 +159,31 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     data.__edge_sets__['os_bl_edges_matches'] = ['left_edges', 'right_edges']
     data.os_bl_vertices_matches = os_bl_vert_matches
     data.__edge_sets__['os_bl_vertices_matches'] = ['left_vertices', 'right_vertices']
+    data.n_onshape_baseline_unmatched = torch.tensor([num_onshape_baseline_unmatched]).long()
 
     return data
 
-def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, orig_edge_map, orig_vert_map, var_face_map, var_edge_map, var_vert_map, orig_classes, var_classes):
+def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, orig_edge_map, orig_vert_map, var_face_map, var_edge_map, var_vert_map, orig_classes):
     face_matches = []
     edge_matches = []
     vert_matches = []
     hashed_matches = [(export_id_hash(match['val1']), export_id_hash(match['val2'])) for _,match in matches.items()]
     hashed_orig_classes = {export_id_hash(k):v for k,v in orig_classes.items()}
-    hashed_var_classes = {export_id_hash(k):v for k,v in var_classes.items()}
-    missing_faces = 0
-    missing_edges = 0
-    missing_verts = 0
-    missing_orig = 0
+
     for orig_id, var_id in hashed_matches:
         if orig_id in orig_face_map:
-            #assert(var_id in var_face_map)
-            if var_id in var_face_map:
-                face_matches.append([orig_face_map[orig_id], var_face_map[var_id]])
-            else:
-                missing_faces += 1
+            assert(var_id in var_face_map)
+            face_matches.append([orig_face_map[orig_id], var_face_map[var_id]])
         elif orig_id in orig_edge_map:
-            #assert(var_id in var_edge_map)
-            if var_id in var_edge_map:
-                edge_matches.append([orig_edge_map[orig_id], var_edge_map[var_id]])
-            else:
-                missing_edges += 1
+            assert(var_id in var_edge_map)
+            edge_matches.append([orig_edge_map[orig_id], var_edge_map[var_id]])
         elif orig_id in orig_vert_map:
-            #assert(var_id in var_vert_map)
-            if var_id in var_vert_map:
-                vert_matches.append([orig_vert_map[orig_id], var_vert_map[var_id]])
-            else:
-                missing_verts +=1
+            assert(var_id in var_vert_map)
+            vert_matches.append([orig_vert_map[orig_id], var_vert_map[var_id]])
         else:
             if hashed_orig_classes[orig_id] in ['PK_CLASS_face', 'PK_CLASS_vertex','PK_CLASS_edge']:
-                missing_orig += 1
-            pass # The last match in our test wasn't in the dataset and was JFD, JFD -- looks like this is a body
-            #assert(False) # Error - missing export id
-    if missing_faces + missing_edges + missing_verts > 0:
-        print(f'Missing: {missing_faces} faces, {missing_edges} edges, {missing_verts} verts, {missing_orig} origs')
-    
+                assert(False)
+
     face_matches = match2tensor(face_matches)
     edge_matches = match2tensor(edge_matches)
     vert_matches = match2tensor(vert_matches)
