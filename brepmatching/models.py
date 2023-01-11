@@ -10,16 +10,18 @@ class BrepNormalizer(torch.nn.Module):
     def __init__(self,
         s_face = 62,
         s_loop = 38,
-        s_edge = 72,):
+        s_edge = 72,
+        fmt: str = "left_%s"):
         super().__init__()
         self.faces_bn = BatchNorm1d(s_face)
         self.edges_bn = BatchNorm1d(s_edge)
-        self.loop_bn = BatchNorm1d(s_loop)
+        self.loops_bn = BatchNorm1d(s_loop)
+        self.fmt = fmt
     
     def forward(self, data):
-        data.faces = self.faces_bn(data.faces)
-        data.edges = self.edges_bn(data.edges)
-        data.loops = self.loop_bn(data.loops)
+        data[self.fmt % "faces"] = self.faces_bn(data[self.fmt % "faces"])
+        data[self.fmt % "edges"] = self.edges_bn(data[self.fmt % "edges"])
+        data[self.fmt % "loops"] = self.loops_bn(data[self.fmt % "loops"])
         return data
 
 
@@ -43,8 +45,8 @@ class PairEmbedder(torch.nn.Module):
         super().__init__()
         self.batch_norm = batch_norm
         if batch_norm:
-            self.norm_left = BrepNormalizer(s_face, s_loop, s_edge)
-            self.norm_right = BrepNormalizer(s_face, s_loop, s_edge)
+            self.norm_left = BrepNormalizer(s_face, s_loop, s_edge, "left_%s")
+            self.norm_right = BrepNormalizer(s_face, s_loop, s_edge, "right_%s")
         self.sbgcn = SBGCN(s_face, s_loop, s_edge, s_vert, embedding_size, k, use_uvnet_features=use_uvnet_features, crv_emb_dim=crv_emb_dim, srf_emb_dim=srf_emb_dim)
         self.mp_exact_matches = mp_exact_matches
         self.mp_overlap_matches = mp_overlap_matches
@@ -57,8 +59,8 @@ class PairEmbedder(torch.nn.Module):
     
     def forward(self, batch):
         if self.batch_norm:
-            batch1, batch2 = zip_apply_2(self.norm_left, self.norm_right, batch)
-            batch = zip_hetdata(batch1, batch2)
+            batch = self.norm_left(batch)
+            batch = self.norm_right(batch)
         orig_embeddings, var_embeddings = zip_apply(self.sbgcn, batch)
         _, _, f_orig, l_orig, e_orig, v_orig = orig_embeddings
         _, _, f_var, l_var, e_var, v_var = var_embeddings
