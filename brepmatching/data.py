@@ -137,6 +137,7 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
         if bl_var_export_id in var_rename:
             new_export_id = var_rename[bl_var_export_id]
             assert(new_export_id in orig_var_types) # We've renamed the topo to something actually in the part
+            assert(var_types[bl_var_export_id] == orig_id_types[orig_export_id]) # Make sure the types match up
             renamed_matches[k] = {'val1':orig_export_id, 'val2':new_export_id}
         elif var_types[bl_var_export_id] in ['PK_CLASS_face', 'PK_CLASS_edge', 'PK_CLASS_vertex']: # Should we have matched this but didn't?
             num_onshape_baseline_unmatched += 1
@@ -214,6 +215,8 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
                         variations = pd.read_csv(f)
                 if 'fail' in variations.columns:
                     variations = variations[variations.fail == 0]
+                if 'translationFail' in variations.columns:
+                    variations = variations[variations.translationFail == 0]
                 orig_id_dict = dict((k,v) for v,k in enumerate(variations.ps_orig.unique()))
                 self.group = []
                 self.original_index = []
