@@ -320,12 +320,14 @@ class MatchingModel(pl.LightningModule):
         """
         unseen_loss, scores_mtx = self.do_once(data, "exact")
         masks = self.init_masks(data)
+        init_matches = self.init_cur_match(data, masks, "exact")
         all_metrics = {}
         for kinds, _, k in TOPO_KINDS:
             matches, scores = greedy_match_2(scores_mtx[k], masks[k] != -1)
             metrics = []
             for threshold in self.thresholds:
-                cur_metrics = compute_metrics_from_matches(data, kinds, matches[:, scores > threshold])
+                cur_metrics = compute_metrics_from_matches(data, kinds,
+                        torch.cat((init_matches[k], matches[:, scores > threshold]), dim=1))
                 metrics.append(cur_metrics)
             all_metrics[k] = np.array(metrics)
         return unseen_loss, all_metrics
