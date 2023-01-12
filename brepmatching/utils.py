@@ -331,7 +331,7 @@ def compute_metrics_impl(matches: torch.Tensor,
     true_neg = (num_true_neg / n_topos_right) if n_topos_right > 0 else 1.0
     missed = (num_missed / n_topos_right) if n_topos_right > 0 else 0.0
     incorrect = (num_wrong_pos / n_topos_right) if n_topos_right > 0 else 0.0
-    false_pos = (num_wrong_pos / n_topos_right) if n_topos_right > 0 else 0.0
+    false_pos = (num_false_pos / n_topos_right) if n_topos_right > 0 else 0.0
 
     precision = (num_true_pos / num_matched) if num_matched > 0 else 1.0
     recall = (num_true_pos / num_gt_matched) if num_gt_matched > 0 else 1.0
