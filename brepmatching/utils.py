@@ -295,7 +295,9 @@ def propagate_adjacency(data: HetData,
 
 ###### METRICS ######
 
-NUM_METRICS = 8
+NUM_METRICS = 7
+METRIC_COLS = ["true_pos", "true_neg", "missed", "incorrect", "false_pos", # relative to nr
+               "precision", "recall"]
 
 def compute_metrics_impl(matches: torch.Tensor,
                          gt_matches: torch.Tensor,
@@ -325,17 +327,16 @@ def compute_metrics_impl(matches: torch.Tensor,
     num_missed = int((gt[pred == -1] >= 0).sum())
     num_wrong_pos = num_incorrect - num_false_pos - num_missed
 
-    true_neg = (num_true_neg / num_gt_unmatched) if num_gt_unmatched > 0 else 1.0
-    false_pos = (num_false_pos / num_gt_unmatched) if num_gt_unmatched > 0 else 0.0
+    true_pos = (num_true_pos / n_topos_right) if n_topos_right > 0 else 0.0
+    true_neg = (num_true_neg / n_topos_right) if n_topos_right > 0 else 1.0
     missed = (num_missed / n_topos_right) if n_topos_right > 0 else 0.0
-    incorrect = (num_wrong_pos / num_gt_matched) if num_gt_matched > 0 else 0.0
-    true_pos_and_neg = (num_correct / n_topos_right) if n_topos_right > 0 else 1.0
-    incorrect_and_false_pos = ((num_wrong_pos + num_false_pos) / n_topos_right) if n_topos_right > 0 else 0.0
+    incorrect = (num_wrong_pos / n_topos_right) if n_topos_right > 0 else 0.0
+    false_pos = (num_wrong_pos / n_topos_right) if n_topos_right > 0 else 0.0
+
     precision = (num_true_pos / num_matched) if num_matched > 0 else 1.0
     recall = (num_true_pos / num_gt_matched) if num_gt_matched > 0 else 1.0
 
-    return np.array([true_neg, false_pos, missed, incorrect, true_pos_and_neg,
-                     incorrect_and_false_pos, precision, recall])
+    return np.array([true_pos, true_neg, missed, incorrect, false_pos, precision, recall])
 
 def compute_metrics_from_matches(data: HetData, kinds: str, matches: torch.Tensor) -> np.ndarray:
     gt_matches = data[f"{kinds}_matches"]       # assume non-empty
@@ -366,91 +367,6 @@ def compute_metrics_from_matches(data: HetData, kinds: str, matches: torch.Tenso
 
     return metrics
 
-
-def compute_metrics(data, predicted_matches_all, predicted_scores_all, topo_type, thresholds):
-    """
-    Compute various metrics relating to the accuracy, missed or false positive matches of the predicted matching
-    Parameters
-    - data: brep matching graph data object
-    - predicted_matches_all: array of matches, each of which is a n x 2 numpy arrays containing the matching topo indices for a pair of parts
-    - predicted_scores_all: array of matching scores (confidence values), each of which is an n-length numpy array containing the similarity scores for each corresponding matching (see above)
-    - topo_type: (faces | edges | vertices)
-    - thresholds: Threshold values for which to evaluate the metrics
-    """
-
-    batch_left = getattr(data, 'left_'+topo_type+'_batch')
-    batch_right = getattr(data, 'right_'+topo_type+'_batch')
-
-    truenegatives = []
-    falsepositives = []
-    missed = []
-    incorrect = []
-    true_positives_and_negatives = []
-    incorrect_and_falsepositive = []
-    precision = []
-    recall = []
-
-    for j,threshold in  enumerate(thresholds):
-        all_predicted_matches_threshold_separate = []
-        for b in range(len(predicted_matches_all)):
-            predicted_matches = predicted_matches_all[b]
-            if predicted_scores_all is None:
-                predicted_matches_threshold = predicted_matches
-            elif len(predicted_scores_all[b]) > 0:
-                predicted_matches_threshold = [predicted_matches[j] for j in range(len(predicted_matches)) if predicted_scores_all[b][j] > threshold]
-            else:
-                predicted_matches_threshold = predicted_matches
-            all_predicted_matches_threshold_separate.append(predicted_matches_threshold)
-            #TODO: global bipartite matching
-        all_predicted_matches_global_raw = batch_matches(all_predicted_matches_threshold_separate, batch_left.cpu().numpy(), batch_right.cpu().numpy()) #all matches in all batches (with global indexing) for the current threshold value
-        all_predicted_matches_global = np.array(all_predicted_matches_global_raw).T
-        
-        left_num_topos = getattr(data, 'left_' + topo_type).shape[0]
-        right_num_topos = getattr(data, 'right_' + topo_type).shape[0]
-        left_gt_matches = getattr(data, topo_type + '_matches')[0].cpu().numpy()
-        right_gt_matches = getattr(data, topo_type + '_matches')[1].cpu().numpy()
-        left_topo2match = np.full((left_num_topos,),-1)
-        right_topo2gtmatch = np.full((right_num_topos,),-1)
-        left_topo2match[left_gt_matches] = right_gt_matches
-        right_topo2gtmatch[right_gt_matches] = left_gt_matches
-
-        right_topo2match = np.full((right_num_topos,), -1)
-        if len(all_predicted_matches_global) > 0:
-            right_topo2match[all_predicted_matches_global[1]] = all_predicted_matches_global[0]
-        num_gt_matched = (right_topo2gtmatch >= 0).sum()
-        num_gt_unmatched = right_num_topos - num_gt_matched
-        num_matched = (right_topo2match >= 0).sum()
-
-
-
-        matched_mask = (right_topo2match == right_topo2gtmatch)
-        num_correct = matched_mask.sum()
-        num_truepositive = (matched_mask & (right_topo2match >= 0)).sum()
-        num_truenegative = num_correct - num_truepositive
-
-        num_missed = (right_topo2gtmatch[right_topo2match == -1] >= 0).sum()
-
-        incorrect_mask = (right_topo2match != right_topo2gtmatch)
-        num_incorrect = incorrect_mask.sum()
-        num_false_positive = (right_topo2gtmatch[right_topo2match >= 0] == -1).sum()
-        num_wrong_positive = num_incorrect - num_false_positive - num_missed
-
-        #truepositives.append(num_truepositive / num_gt_matched)
-        truenegatives.append((num_truenegative / num_gt_unmatched) if num_gt_unmatched > 0 else 0)
-        falsepositives.append((num_false_positive / num_gt_unmatched) if num_gt_unmatched > 0 else 0)
-        missed.append(num_missed / right_num_topos)
-        incorrect.append(num_wrong_positive / num_gt_matched)
-        true_positives_and_negatives.append(num_correct / right_num_topos)
-        incorrect_and_falsepositive.append((num_wrong_positive + num_false_positive) / right_num_topos)
-
-        precision.append(num_truepositive / num_matched)
-        recall.append(num_truepositive / num_gt_matched)
-
-        if j == 0:
-            right2left_matched_accuracy = num_truepositive / num_gt_matched
-
-    return np.array(truenegatives), np.array(falsepositives), np.array(missed),  np.array(incorrect), np.array(true_positives_and_negatives), np.array(incorrect_and_falsepositive), np.array(precision), np.array(recall), right2left_matched_accuracy
-
 ###### PLOTTING ######
 
 def plot_metric(metric, thresholds, name):
@@ -463,6 +379,26 @@ def plot_metric(metric, thresholds, name):
     ax.set_ylim(-0.1, 1.1)
     ax.grid()
     return fig
+
+def plot_the_fives(true_pos: np.ndarray,
+                   true_neg: np.ndarray,
+                   missed: np.ndarray,
+                   incorrect: np.ndarray,
+                   false_pos: np.ndarray,
+                   thresholds: np.ndarray,
+                   title: str) -> Figure:
+    fig = Figure(figsize=(8, 8))
+    ax = fig.add_subplot()
+    ax.stackplot(thresholds, false_pos, incorrect, missed, true_neg, true_pos,
+                 labels=["False Positive", "Incorrect", "Missed", "True Negative", "True Positive"],
+                 colors=["#BA5050", "#D4756C", "#D6CFB8", "#61B5CF", "#468CB8"])
+    ax.legend(loc="upper left")
+    ax.set_xlabel("Threshold")
+    ax.set_title(title)
+    ax.set_ylim(-0.1, 1.1)
+    ax.grid()
+    return fig
+    
     
 def plot_multiple_metrics(metrics: dict[str, np.ndarray], 
                           thresholds: np.ndarray,

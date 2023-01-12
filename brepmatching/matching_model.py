@@ -6,12 +6,13 @@ from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
 from brepmatching.utils import (
-    plot_metric,
+    plot_the_fives,
     plot_multiple_metrics,
     plot_tradeoff,
+    NUM_METRICS,
+    METRIC_COLS,
     greedy_match_2,
     count_batches,
-    compute_metrics,
     Running_avg,
     separate_batched_matches,
     compute_metrics_from_matches,
@@ -21,6 +22,7 @@ from brepmatching.utils import (
 )
 from brepmatching.loss import *
 from automate import HetData
+import pandas as pd
 from typing import Any
 
 #from torch.profiler import profile, record_function, ProfilerActivity
@@ -402,9 +404,9 @@ class MatchingModel(pl.LightningModule):
 
     def test_epoch_end(self, outputs):
         if self.test_greedy:
-            self.log_metrics_v_thresh(outputs, "greedy", "test_greedy")
+            self.log_metrics_v_thresh(outputs, "greedy", "test_greedy", save=True)
         if self.test_iterative_vs_threshold:
-            self.log_metrics_v_thresh(outputs, "iter", "test_iter")
+            self.log_metrics_v_thresh(outputs, "iter", "test_iter", save=True)
     
     def log_metrics(self, data: HetData, kinds: str, prefix: str):
         batch_size = count_batches(data)
@@ -420,7 +422,7 @@ class MatchingModel(pl.LightningModule):
         self.log(f"{prefix}_precision/{kinds}", precision, batch_size=batch_size)
         self.log(f"{prefix}_recall/{kinds}", recall, batch_size=batch_size)
 
-    def log_metrics_v_thresh(self, outputs, algo: str, prefix: str):
+    def log_metrics_v_thresh(self, outputs, algo: str, prefix: str, save: bool = False):
         """
         algo: "greedy" or "iter"
         """
@@ -432,21 +434,16 @@ class MatchingModel(pl.LightningModule):
         for output in outputs:
             for _, _, k in TOPO_KINDS:
                 all_metrics[k] += output[algo][k]
+        
         for kinds, _, k in TOPO_KINDS:
             all_metrics[k] /= len(outputs)
 
-            true_neg, false_pos, missed, incorrect, true_pos_and_neg, \
-                incorrect_and_false_pos, precision, recall \
-                    = (all_metrics[k][:, i] for i in range(8))
+            true_pos, true_neg, missed, incorrect, false_pos, \
+                precision, recall \
+                    = (all_metrics[k][:, i] for i in range(NUM_METRICS))
             
-            fig_all = plot_multiple_metrics({
-                #'True Negatives': truenegatives,
-                #'False Positives': falsepositives,
-                'Correct (all)': true_pos_and_neg,
-                'Missed': missed,
-                #'Incorrect (Matched)': incorrect,
-                'Incorrect or False Positive (all)': incorrect_and_false_pos,
-            }, self.thresholds, f"Metrics vs. Threshold ({kinds})")
+            fig_all = plot_the_fives(true_pos, true_neg, missed, incorrect, false_pos,
+                                     self.thresholds, f"Metrics vs. Threshold ({kinds})")
         
             fig_precrecall_flat = plot_multiple_metrics({
                 'precision': precision,
@@ -457,14 +454,18 @@ class MatchingModel(pl.LightningModule):
             fig_precision_recall = plot_tradeoff(
                 recall, precision, self.thresholds, label_indices,
                 'Recall', 'Precision', f" ({kinds})")
-            fig_missed_spurious = plot_tradeoff(
-                missed, false_pos, self.thresholds, label_indices,
-                'Missed', 'False Positive', f" ({kinds})")
+
             self.logger.experiment.add_figure(f'{prefix}_metric_v_thresh/{kinds}', fig_all, self.current_epoch)
             self.logger.experiment.add_figure(f'{prefix}_precision_recall_v_thresh/{kinds}', fig_precrecall_flat, self.current_epoch)
             self.logger.experiment.add_figure(f'{prefix}_precision_v_recall/{kinds}', fig_precision_recall, self.current_epoch)
-            self.logger.experiment.add_figure(f'{prefix}_missed_v_false_pos/{kinds}', fig_missed_spurious, self.current_epoch)
-
+        
+        if save:
+            entries = []
+            for kinds, _, k in TOPO_KINDS:
+                for threshold, metrics in zip(self.thresholds, all_metrics[k]):
+                    entries.append([threshold, *metrics, kinds])
+            df = pd.DataFrame(entries, columns=["Threshold", *METRIC_COLS, "Kind"])
+            df.to_csv(f"{self.logger.log_dir}/{prefix}_metrics.csv")
 
 
     def get_callbacks(self):
