@@ -222,7 +222,7 @@ def matmul_bool(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     p, q1 = a.shape
     q2, r = b.shape
     assert(q1 == q2)
-    res = torch.empty((p, r), dtype=torch.bool)
+    res = torch.empty((p, r), dtype=torch.bool, device=a.device)
     for j in range(r):
         res[:, j] = a.logical_and(b.T[j]).any(dim=-1)
     return res
