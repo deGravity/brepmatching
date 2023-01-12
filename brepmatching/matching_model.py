@@ -63,7 +63,9 @@ class MatchingModel(pl.LightningModule):
         log_baselines: bool = False,
 
         threshold: float = 0.75,
-        use_adjacency: bool = False
+        use_adjacency: bool = False,
+        test_greedy: bool = True,
+        test_iterative_vs_threshold: bool = True
         ):
         super().__init__()
 
@@ -97,8 +99,8 @@ class MatchingModel(pl.LightningModule):
             Sigmoid()
         )
         self.loss = BCELoss(reduction="sum") 
-        self.test_greedy = True
-        self.test_iterative_vs_threshold = True
+        self.test_greedy = test_greedy
+        self.test_iterative_vs_threshold = test_iterative_vs_threshold
         self.use_adjacency = use_adjacency
 
         self.softmax = LogSoftmax(dim=1)
