@@ -5,7 +5,20 @@ from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter, Linear, Sequential
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
-from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_match_2, count_batches, compute_metrics, Running_avg, separate_batched_matches, compute_metrics_from_matches
+from brepmatching.utils import (
+    plot_metric,
+    plot_multiple_metrics,
+    plot_tradeoff,
+    greedy_match_2,
+    count_batches,
+    compute_metrics,
+    Running_avg,
+    separate_batched_matches,
+    compute_metrics_from_matches,
+    precompute_adjacency,
+    propagate_adjacency,
+    unzip_hetdata
+)
 from brepmatching.loss import *
 from automate import HetData
 from typing import Any
@@ -47,7 +60,8 @@ class MatchingModel(pl.LightningModule):
 
         log_baselines: bool = False,
 
-        threshold: float = 0.75
+        threshold: float = 0.75,
+        use_adjacency: bool = False
         ):
         super().__init__()
 
@@ -83,6 +97,7 @@ class MatchingModel(pl.LightningModule):
         self.loss = BCELoss(reduction="sum") 
         self.test_greedy = True
         self.test_iterative_vs_threshold = True
+        self.use_adjacency = use_adjacency
 
         self.softmax = LogSoftmax(dim=1)
         self.batch_norm = batch_norm
@@ -99,7 +114,7 @@ class MatchingModel(pl.LightningModule):
 
         self.save_hyperparameters()
     
-    def forward(self, data: HetData, masks: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def forward(self, data: HetData, masks_bool: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """
         Returns a dict of ("f", "e", "v") to scores (nl, nr) tensor.
 
@@ -118,7 +133,7 @@ class MatchingModel(pl.LightningModule):
             left_k = left[k] # shape (nl, 64)
             right_k = right[k] # shape (nr, 64)
 
-            mask_k = (masks[k] != -1)
+            mask_k = masks_bool[k]
 
             # create pairwise concatenation
             grid_l, grid_r = torch.meshgrid(torch.arange(left_k.shape[0], device=self.device),
@@ -164,33 +179,42 @@ class MatchingModel(pl.LightningModule):
             gt_scores[k] = score
         return gt_scores
 
-    def init_cur_match(self, data: HetData, strategy: str) -> None:
+    def init_cur_match(self,
+                       data: HetData,
+                       mask: dict[str, torch.Tensor],
+                       strategy: str) -> dict[str, torch.Tensor]:
         """
-        `data` will be modified.
+        Initialize matches and attach to `data` and modify `mask` on the corresponding matches.
+
+        Return a dict of matches initialized.
+
+        `data` and `mask` will be modified.
         """
-        if strategy == "random":
-            for kinds, _, _ in TOPO_KINDS:
+        all_matches = {}
+        for kinds, _, k in TOPO_KINDS:
+            if strategy == "random":
                 n_gt_matches = data[f"{kinds}_matches"].shape[1]
                 indices = torch.randperm(n_gt_matches)[:n_gt_matches // 2]
-                setattr(data, f"cur_{kinds}_matches",
-                    data[f"{kinds}_matches"][:, indices])
-                data.__edge_sets__[f"cur_{kinds}_matches"] = [f"left_{kinds}", f"right_{kinds}"]
-        elif strategy == "exact":
-            for kinds, _, _ in TOPO_KINDS:
-                setattr(data, f"cur_{kinds}_matches",
-                    data[f"bl_exact_{kinds}_matches"].clone())
-                data.__edge_sets__[f"cur_{kinds}_matches"] = [f"left_{kinds}", f"right_{kinds}"]
-        else:
-            raise NotImplementedError()
+                matches = data[f"{kinds}_matches"][:, indices]
+            elif strategy == "exact":
+                matches = data[f"bl_exact_{kinds}_matches"].clone()
+            else:
+                raise NotImplementedError()
+            setattr(data, f"cur_{kinds}_matches", matches)
+            data.__edge_sets__[f"cur_{kinds}_matches"] = [f"left_{kinds}", f"right_{kinds}"]
+            mask[k][matches[0], :] = -1
+            mask[k][:, matches[1]] = -1
+            all_matches[k] = matches
+        return all_matches
 
     def compute_loss(self,
                      scores: dict[str, torch.Tensor],
                      gt_scores: dict[str, torch.Tensor],
-                     masks: dict[str, torch.Tensor]) -> torch.Tensor:
+                     masks_bool: dict[str, torch.Tensor]) -> torch.Tensor:
         loss = torch.tensor(0.0, device=self.device)
         numel = 0
         for _, _, k in TOPO_KINDS:
-            mask_k = (masks[k] != -1)
+            mask_k = masks_bool[k]
             loss += self.loss(scores[k][mask_k], gt_scores[k][mask_k])
             numel += scores[k][mask_k].numel()
         return loss / numel if numel != 0 else torch.tensor(0.0, device=self.device)
@@ -212,17 +236,28 @@ class MatchingModel(pl.LightningModule):
         gt_scores = self.init_gt_scores(data)
 
         # prepare current match (to coincident)
-        self.init_cur_match(data, "exact")
+        init_matches = self.init_cur_match(data, cur_masks, "exact")
+
+        if self.use_adjacency:
+            data_l, data_r = unzip_hetdata(data)
+            adj_l = precompute_adjacency(data_l)
+            adj_r = precompute_adjacency(data_r)
         
         loss = torch.tensor(0.0, device=self.device)
         n_iter = 0
         changed = True
         while changed:
+            cur_masks_bool = {k: (cur_masks[k] != -1) for _, _, k in TOPO_KINDS}
+            if self.use_adjacency:
+                adj_mask = propagate_adjacency(data, adj_l, adj_r)
+                for _, _, k in TOPO_KINDS:
+                    cur_masks_bool[k].logical_and_(adj_mask[k])
+
             # score candidates
-            scores = self(data, cur_masks)
+            scores = self(data, cur_masks_bool)
 
             # compute loss
-            loss += self.compute_loss(scores, gt_scores, cur_masks)
+            loss += self.compute_loss(scores, gt_scores, cur_masks_bool)
             n_iter += 1
 
             changed = False
@@ -270,10 +305,11 @@ class MatchingModel(pl.LightningModule):
         gt_scores = self.init_gt_scores(data)
 
         # prepare current match
-        self.init_cur_match(data, init_strategy)
+        self.init_cur_match(data, masks, init_strategy)
         
-        scores = self(data, masks)
-        loss = self.compute_loss(scores, gt_scores, masks)
+        masks_bool = {k: (masks[k] != -1) for _, _, k in TOPO_KINDS}
+        scores = self(data, masks_bool)
+        loss = self.compute_loss(scores, gt_scores, masks_bool)
         return loss, scores
 
     def do_greedy_and_compute_metric(self, data: HetData) -> tuple[torch.Tensor, dict[str, np.ndarray]]:
