@@ -60,6 +60,7 @@ def count_batches(data: HetData) -> int:
     #Todo: is there a better way to count batches?
     return int(max(data.left_faces_batch[-1].item(), data.right_faces_batch[-1].item())) + 1
 
+###### MATCHING ######
 
 def greedy_matching(adjacency_matrices):
     """
@@ -205,6 +206,92 @@ def batch_matches(matches, left_topo_batches, right_topo_batches):
     batch_left_inds = [(left_topo_batches == j).nonzero()[0] for j in range(num_batches)]
     batch_right_inds = [(right_topo_batches == j).nonzero()[0] for j in range(num_batches)]
     return sum([[[batch_left_inds[b][match[0]], batch_right_inds[b][match[1]]] for match in matches[b]] for b in range(num_batches)], [])
+
+###### ADJACENCY ######
+
+def construct_adjacency_matrix(edge_indices: torch.Tensor, n_a, n_b) -> torch.Tensor:
+    res = torch.zeros((n_a, n_b), dtype=torch.bool, device=edge_indices.device)
+    res[edge_indices[0]][edge_indices[1]] = True
+    return res
+
+# TODO might not be the most efficient way
+def matmul_bool(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    p, q1 = a.shape
+    q2, r = b.shape
+    assert(q1 == q2)
+    i, j = torch.meshgrid(torch.arange(p), torch.arange(r), indexing="ij")
+    return a[i].logical_and(b.T[j]).any(dim=-1)
+
+def matmul_(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    return (a @ b).clamp(None, 1)
+
+
+def precompute_adjacency(data: HetData) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    n_faces = data.faces.shape[0]
+    n_loops = data.loops.shape[0]
+    n_edges = data.edges.shape[0]
+    n_vertices = data.vertices.shape[0]
+
+    f2l = construct_adjacency_matrix(data.face_to_loop, n_faces, n_loops)
+    l2e = construct_adjacency_matrix(data.loop_to_edge, n_loops, n_edges)
+    e2v = construct_adjacency_matrix(data.edge_to_vertex, n_edges, n_vertices)
+
+    f2e = matmul_bool(f2l, l2e)
+    f2v = matmul_bool(f2e, e2v)
+
+    return f2e, f2v, e2v
+
+
+def propagate_adjacency(data: HetData,
+                        adj_left: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+                        adj_right: tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+                       ) -> dict[str, torch.Tensor]:
+    device = data.left_faces.device
+
+    n_faces_left = data.left_faces.shape[0]
+    n_edges_left = data.left_edges.shape[0]
+    n_vertices_left = data.left_vertices.shape[0]
+
+    match_faces_left = torch.zeros((1, n_faces_left), dtype=torch.bool, device=device)
+    match_faces_left[0, data.cur_faces_matches[0]] = True
+
+    match_edges_left = torch.zeros((1, n_edges_left), dtype=torch.bool, device=device)
+    match_edges_left[0, data.cur_edges_matches[0]] = True
+
+    match_vertices_left = torch.zeros((1, n_vertices_left), dtype=torch.bool, device=device)
+    match_vertices_left[0, data.cur_vertices_matches[0]] = True
+
+    left_f2e, left_f2v, left_e2v = adj_left
+
+    adj_faces_left = matmul_bool(match_edges_left, left_f2e.T).logical_or(matmul_bool(match_vertices_left, left_f2v.T))
+    adj_edges_left = matmul_bool(match_faces_left, left_f2e).logical_or(matmul_bool(match_vertices_left, left_e2v.T))
+    adj_vertices_left = matmul_bool(match_faces_left, left_f2v).logical_or(matmul_bool(match_edges_left, left_e2v))
+
+    # TODO: Fix this massive copy and paste
+    n_faces_right = data.right_faces.shape[0]
+    n_edges_right = data.right_edges.shape[0]
+    n_vertices_right = data.right_vertices.shape[0]
+
+    match_faces_right = torch.zeros((1, n_faces_right), dtype=torch.bool, device=device)
+    match_faces_right[0, data.cur_faces_matches[1]] = True
+
+    match_edges_right = torch.zeros((1, n_edges_right), dtype=torch.bool, device=device)
+    match_edges_right[0, data.cur_edges_matches[1]] = True
+
+    match_vertices_right = torch.zeros((1, n_vertices_right), dtype=torch.bool, device=device)
+    match_vertices_right[0, data.cur_vertices_matches[1]] = True
+
+    right_f2e, right_f2v, right_e2v = adj_right
+
+    adj_faces_right = matmul_bool(match_edges_right, right_f2e.T).logical_or(matmul_bool(match_vertices_right, right_f2v.T))
+    adj_edges_right = matmul_bool(match_faces_right, right_f2e).logical_or(matmul_bool(match_vertices_right, right_e2v.T))
+    adj_vertices_right = matmul_bool(match_faces_right, right_f2v).logical_or(matmul_bool(match_edges_right, right_e2v))
+
+    return {
+        "f": matmul_bool(adj_faces_left.T, adj_faces_right),
+        "e": matmul_bool(adj_edges_left.T, adj_edges_right),
+        "v": matmul_bool(adj_vertices_left.T, adj_vertices_right)
+    }
 
 ###### METRICS ######
 
