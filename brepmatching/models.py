@@ -3,25 +3,23 @@ from automate import SBGCN
 from torch.nn import BatchNorm1d
 from torch_geometric.nn import GeneralConv
 
-from .utils import zip_apply_2, zip_apply, zip_hetdata
+from .utils import unzip_hetdata
 
 
 class BrepNormalizer(torch.nn.Module):
     def __init__(self,
         s_face = 62,
         s_loop = 38,
-        s_edge = 72,
-        fmt: str = "left_%s"):
+        s_edge = 72):
         super().__init__()
         self.faces_bn = BatchNorm1d(s_face)
         self.edges_bn = BatchNorm1d(s_edge)
         self.loops_bn = BatchNorm1d(s_loop)
-        self.fmt = fmt
     
     def forward(self, data):
-        data[self.fmt % "faces"] = self.faces_bn(data[self.fmt % "faces"])
-        data[self.fmt % "edges"] = self.edges_bn(data[self.fmt % "edges"])
-        data[self.fmt % "loops"] = self.loops_bn(data[self.fmt % "loops"])
+        data.faces = self.faces_bn(data.faces)
+        data.edges = self.edges_bn(data.edges)
+        data.loops = self.loops_bn(data.loops)
         return data
 
 
@@ -45,8 +43,8 @@ class PairEmbedder(torch.nn.Module):
         super().__init__()
         self.batch_norm = batch_norm
         if batch_norm:
-            self.norm_left = BrepNormalizer(s_face, s_loop, s_edge, "left_%s")
-            self.norm_right = BrepNormalizer(s_face, s_loop, s_edge, "right_%s")
+            self.norm_left = BrepNormalizer(s_face, s_loop, s_edge)
+            self.norm_right = BrepNormalizer(s_face, s_loop, s_edge)
         self.sbgcn = SBGCN(s_face, s_loop, s_edge, s_vert, embedding_size, k, use_uvnet_features=use_uvnet_features, crv_emb_dim=crv_emb_dim, srf_emb_dim=srf_emb_dim)
         self.mp_exact_matches = mp_exact_matches
         self.mp_overlap_matches = mp_overlap_matches
@@ -58,12 +56,18 @@ class PairEmbedder(torch.nn.Module):
                 for i in range(self.prematch_layers)])
     
     def forward(self, batch):
+        orig_batch, var_batch = unzip_hetdata(batch)
         if self.batch_norm:
-            batch = self.norm_left(batch)
-            batch = self.norm_right(batch)
-        orig_embeddings, var_embeddings = zip_apply(self.sbgcn, batch)
+            orig_batch = self.norm_left(orig_batch)
+            var_batch = self.norm_right(var_batch)
+        orig_embeddings = self.sbgcn(orig_batch)
+        var_embeddings = self.sbgcn(var_batch)
         _, _, f_orig, l_orig, e_orig, v_orig = orig_embeddings
         _, _, f_var, l_var, e_var, v_var = var_embeddings
+
+        for emb in [f_orig, l_orig, e_orig, v_orig, f_var, l_var, e_var, v_var]:
+            assert(not emb.isnan().any())
+
 
         device = batch.left_faces.device
 
