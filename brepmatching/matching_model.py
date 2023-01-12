@@ -412,15 +412,12 @@ class MatchingModel(pl.LightningModule):
     
     def log_metrics(self, data: HetData, kinds: str, prefix: str):
         batch_size = count_batches(data)
-        true_neg, false_pos, missed, incorrect, true_pos_and_neg, incorrect_and_false_pos, \
+        true_pos, true_neg, missed, incorrect, false_pos, \
             precision, recall = compute_metrics_from_matches(data, kinds, data[f"cur_{kinds}_matches"])
 
-        self.log(f"{prefix}_true_neg/{kinds}", true_neg, batch_size=batch_size)
-        self.log(f"{prefix}_false_pos/{kinds}", false_pos, batch_size=batch_size)
+        self.log(f"{prefix}_correct/{kinds}", true_pos + true_neg, batch_size=batch_size)
         self.log(f"{prefix}_missed/{kinds}", missed, batch_size=batch_size)
-        self.log(f"{prefix}_incorrect/{kinds}", incorrect, batch_size=batch_size)
-        self.log(f"{prefix}_true_pos_and_neg/{kinds}", true_pos_and_neg, batch_size=batch_size)
-        self.log(f"{prefix}_incorrect_and_false_pos/{kinds}", incorrect_and_false_pos, batch_size=batch_size)
+        self.log(f"{prefix}_incorrect/{kinds}", incorrect + false_pos, batch_size=batch_size)
         self.log(f"{prefix}_precision/{kinds}", precision, batch_size=batch_size)
         self.log(f"{prefix}_recall/{kinds}", recall, batch_size=batch_size)
 
