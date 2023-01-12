@@ -483,12 +483,30 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                     PK_BODY_boolean_o_t bool_opts;
                     PK_BODY_boolean_o_m(bool_opts);
                     
+                    /*
+                    1. What tolerance are you using for PK_FACE_is_coincidence to exactly match faces? I've been using 1e-8 since I thought I heard you say that's what you used.
+                        Looking at the code, it's actually 1e-5.  1e-8 is way too tight.
+                    2. What epsilon do you use for point distances? I'm currently using d^2 <= 1e-16
+                        Same, 1e-5 -- so d^2 <= 1e-10
+                    3. What do you use for the accuracy parameter of PK_TOPOL_eval_mass_props when measuring surface areas for comparison to 80% overlap? I'm currently using .999
+                        Yes, that's what we use.  Also for centroid computation.
+                    4. Are you using PK_BODY_boolean_2 to intersect faces / edges, and if so, which (if any) non-default options are used in the options structure (PK_BODY_boolean_o_t)?
+                        Yes, we're using PK_BODY_boolean_2.  We use max_tol = 1e-5, matched_region is set to the default except match_style = PK_boolean_match_style_auto_c
+                    
+                    */
+
                     bool_opts.function = PK_boolean_intersect_c;
+                    bool_opts.max_tol = BOOL_MAX_TOL;
+
+                    PK_boolean_match_o_t match_opts;
+                    PK_boolean_match_o_m(match_opts);
+                    match_opts.match_style = PK_boolean_match_style_auto_c;
+                    bool_opts.matched_region = &match_opts;
 
                     PK_TOPOL_track_r_t bool_tracking;
                     PK_boolean_r_t bool_results;
 
-                    PK_BODY_boolean_2(n_bodies1, 1, &n_bodies2, &bool_opts, &bool_tracking, &bool_results);
+                    err = PK_BODY_boolean_2(bodies1[0], 1, bodies2, &bool_opts, &bool_tracking, &bool_results);
                     assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
 
                     PK_TOPOL_eval_mass_props_o_t mass_prop_opts;
@@ -501,9 +519,9 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                     err = PK_TOPOL_eval_mass_props(1, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &intersection_amount, &mass, c_of_g, m_of_i, &periphery);
                     assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
 
-                    err = PK_TOPOL_eval_mass_props(1, &p1_face, MASS_PROP_TOL, &mass_prop_opts, &intersection_amount, &mass, c_of_g, m_of_i, &periphery);
+                    err = PK_TOPOL_eval_mass_props(1, &p1_face, MASS_PROP_TOL, &mass_prop_opts, &sheet1_amount, &mass, c_of_g, m_of_i, &periphery);
                     assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
-                    err = PK_TOPOL_eval_mass_props(1, &p2_face, MASS_PROP_TOL, &mass_prop_opts, &intersection_amount, &mass, c_of_g, m_of_i, &periphery);
+                    err = PK_TOPOL_eval_mass_props(1, &p2_face, MASS_PROP_TOL, &mass_prop_opts, &sheet2_amount, &mass, c_of_g, m_of_i, &periphery);
                     assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
 
                     double original_size = sheet1_amount < sheet2_amount ? sheet1_amount : sheet2_amount;
