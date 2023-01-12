@@ -216,11 +216,16 @@ def construct_adjacency_matrix(edge_indices: torch.Tensor, n_a, n_b) -> torch.Te
 
 # TODO might not be the most efficient way
 def matmul_bool(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """
+    Complexity O(n * GPU(n ^ 2))
+    """
     p, q1 = a.shape
     q2, r = b.shape
     assert(q1 == q2)
-    i, j = torch.meshgrid(torch.arange(p), torch.arange(r), indexing="ij")
-    return a[i].logical_and(b.T[j]).any(dim=-1)
+    res = torch.empty((p, r), dtype=torch.bool)
+    for j in range(r):
+        res[:, j] = a.logical_and(b.T[j]).any(dim=-1)
+    return res
 
 def matmul_(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return (a @ b).clamp(None, 1)
