@@ -417,6 +417,10 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
     std::vector<std::tuple<std::string, std::string>> edge_matches;
     std::vector<std::tuple<std::string, std::string>> vertex_matches;
 
+    std::vector<std::tuple<std::string, std::string>> face_overlaps;
+    std::vector<std::tuple<std::string, std::string>> edge_overlaps;
+    std::vector<std::tuple<std::string, std::string>> vertex_overlaps;
+
     // Match Faces
     for (auto p1_face : p1_topo.faces) {
         for (auto p2_face : p2_topo.faces) {
@@ -531,7 +535,7 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                         auto p2_face_id_it = p2_topo_map.find(p2_face);
                         assert(p1_face_id_it != p1_topo_map.end());
                         assert(p2_face_id_it != p2_topo_map.end());
-                        face_matches.push_back(std::make_tuple(p1_face_id_it->second, p2_face_id_it->second));
+                        face_overlaps.push_back(std::make_tuple(p1_face_id_it->second, p2_face_id_it->second));
                         break;
                     }
 
@@ -627,6 +631,10 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
     m.face_matches = face_matches;
     m.edge_matches = edge_matches;
     m.vertex_matches = vertex_matches;
+
+    m.face_overlaps = face_overlaps;
+    m.edge_overlaps = edge_overlaps;
+    m.vertex_overlaps = vertex_overlaps;
 
     return m;
 }
