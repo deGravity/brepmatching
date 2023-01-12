@@ -4,6 +4,7 @@ from brepmatching.matching_model import MatchingModel
 from pytorch_lightning.loggers import TensorBoardLogger
 from brepmatching.data import BRepMatchingDataModule
 from torch_geometric.loader import DataLoader
+import torch
 import sys
 import os
 
@@ -30,6 +31,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_train', action='store_true')
     parser.add_argument('--no_test', action='store_true')
     parser.add_argument('--validate', action='store_true')
+    parser.add_argument('--override_args', action='store_true')
 
     parser = pl.Trainer.add_argparse_args(parser)
     parser = BRepMatchingDataModule.add_argparse_args(parser)
@@ -63,6 +65,9 @@ if __name__ == '__main__':
 
     if args.checkpoint_path is None:
         model = MatchingModel.from_argparse_args(args)
+    elif args.override_args:
+        model = MatchingModel.from_argparse_args(args)
+        model.load_state_dict(torch.load(args.checkpoint_path)['state_dict'])
     else:
         model = MatchingModel.load_from_checkpoint(args.checkpoint_path)
     callbacks = model.get_callbacks()
