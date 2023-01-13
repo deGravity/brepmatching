@@ -34,6 +34,7 @@ class WeightedBCELoss(torch.nn.Module):
     Binary Cross Entropy Loss but weighted for target 0.
     """
     def __init__(self, weight: float = 1.0):
+        super().__init__()
         self.weight = weight
         self.loss = BCELoss(reduction="sum")
 
