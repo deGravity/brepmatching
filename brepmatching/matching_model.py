@@ -29,7 +29,7 @@ from typing import Any
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
-class WeightedBCELoss:
+class WeightedBCELoss(torch.nn.Module):
     """
     Binary Cross Entropy Loss but weighted for target 0.
     """
@@ -37,7 +37,7 @@ class WeightedBCELoss:
         self.weight = weight
         self.loss = BCELoss(reduction="sum")
 
-    def __call__(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         return self.loss(x[y == 1], y[y == 1]) + self.weight * self.loss(x[y == 0], y[y == 0])
 
 class MatchingModel(pl.LightningModule):
@@ -110,18 +110,7 @@ class MatchingModel(pl.LightningModule):
         self.test_iterative_vs_threshold = test_iterative_vs_threshold
         self.use_adjacency = use_adjacency
 
-        self.softmax = LogSoftmax(dim=1)
         self.batch_norm = batch_norm
-
-        self.averages = {}
-        for topo_type in ['faces', 'edges','vertices']:
-            self.averages[topo_type + '_recall'] = Running_avg(num_thresholds)
-            self.averages[topo_type + '_precision'] = Running_avg(num_thresholds)
-            self.averages[topo_type + '_falsepositives'] = Running_avg(num_thresholds)
-            self.averages[topo_type + '_true_positives_and_negatives'] = Running_avg(num_thresholds)
-            self.averages[topo_type + '_incorrect_and_falsepositive'] = Running_avg(num_thresholds)
-            self.averages[topo_type + '_missed'] = Running_avg(num_thresholds)
-
 
         self.save_hyperparameters()
     
