@@ -11,6 +11,8 @@ from brepmatching.utils import (
     plot_tradeoff,
     NUM_METRICS,
     METRIC_COLS,
+    TOPO_KINDS,
+    add_match_to_frontier,
     greedy_match_2,
     count_batches,
     Running_avg,
@@ -27,12 +29,6 @@ from typing import Any
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
-TOPO_KINDS: list[tuple[str, str, str]] = [
-  ("faces", "face", "f"),
-  # ("loops", "loop", "l"),
-  ("edges", "edge", "e"),
-  ("vertices", "vertex", "v")
-]
 
 class MatchingModel(pl.LightningModule):
 
@@ -244,8 +240,28 @@ class MatchingModel(pl.LightningModule):
 
         if self.use_adjacency:
             data_l, data_r = unzip_hetdata(data)
-            adj_l = precompute_adjacency(data_l)
-            adj_r = precompute_adjacency(data_r)
+            # precomputed adjacency data
+            adj_data_l = precompute_adjacency(data_l)
+            adj_data_r = precompute_adjacency(data_r)
+
+            # active frontier
+            adj_l: dict[str, torch.Tensor] = {}
+            adj_r: dict[str, torch.Tensor] = {}
+            for kinds, _, k in TOPO_KINDS:
+                adj_l[k] = torch.zeros(data_l[kinds].shape[0], dtype=torch.bool, device=self.device)
+                adj_r[k] = torch.zeros(data_r[kinds].shape[0], dtype=torch.bool, device=self.device)
+
+            # init active frontier with init match
+            for kinds, _, k in TOPO_KINDS:
+                for i in range(init_matches[k].shape[1]):
+                    add_match_to_frontier(int(init_matches[k][0, i].item()),
+                                          int(init_matches[k][1, i].item()),
+                                          k,
+                                          adj_data_l,
+                                          adj_data_r,
+                                          adj_l, adj_r)
+                
+
         
         loss = torch.tensor(0.0, device=self.device)
         n_iter = 0
@@ -253,9 +269,10 @@ class MatchingModel(pl.LightningModule):
         while changed:
             cur_masks_bool = {k: (cur_masks[k] != -1) for _, _, k in TOPO_KINDS}
             if self.use_adjacency:
-                adj_mask = propagate_adjacency(data, adj_l, adj_r)
                 for _, _, k in TOPO_KINDS:
-                    cur_masks_bool[k].logical_and_(adj_mask[k])
+                    adj_mask = adj_l[k].expand(adj_r[k].shape[0], -1).T.logical_and(
+                               adj_r[k].expand(adj_l[k].shape[0], -1))
+                    cur_masks_bool[k].logical_and_(adj_mask)
 
             # score candidates
             scores = self(data, cur_masks_bool)
@@ -294,6 +311,9 @@ class MatchingModel(pl.LightningModule):
                 # add (l, r) to matches
                 setattr(data, f"cur_{mx_kinds}_matches",
                     torch.cat((data[f"cur_{mx_kinds}_matches"], torch.tensor([[l], [r]], device=self.device)), dim=-1))
+
+                if self.use_adjacency:
+                    add_match_to_frontier(l, r, mx_k, adj_data_l, adj_data_r, adj_l, adj_r)
 
                 # do not consider l and r again
                 cur_masks[mx_k][l, :] = -1

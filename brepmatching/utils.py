@@ -6,6 +6,13 @@ import numpy as np
 import torch
 from typing import Optional
 
+TOPO_KINDS: list[tuple[str, str, str]] = [
+  ("faces", "face", "f"),
+  # ("loops", "loop", "l"),
+  ("edges", "edge", "e"),
+  ("vertices", "vertex", "v")
+]
+
 def zip_hetdata(left, right):
     common_keys = set(left.keys).intersection(right.keys)
     data = HetData()
@@ -214,6 +221,26 @@ def construct_adjacency_matrix(edge_indices: torch.Tensor, n_a, n_b) -> torch.Te
     res[edge_indices[0], edge_indices[1]] = True
     return res
 
+def construct_adjacency_list(edge_indices: torch.Tensor, n_a, n_b) -> tuple[list[list[int]], list[list[int]]]:
+    res_ab: list[list[int]] = [[] for _ in range(n_a)]
+    res_ba: list[list[int]] = [[] for _ in range(n_b)]
+    n_e = edge_indices.shape[1]
+    for i in range(n_e):
+        u = int(edge_indices[0, i].item())
+        v = int(edge_indices[1, i].item())
+        res_ab[u].append(v)
+        res_ba[v].append(u)
+    return res_ab, res_ba
+
+def combine_adjacency_list(a2b: list[list[int]], b2c: list[list[int]]) -> list[list[int]]:
+    a2c: list[list[int]] = [[] for _ in range(len(a2b))]
+    for i, bs in enumerate(a2b):
+        for b in bs:
+            a2c[i].extend(b2c[b])
+        # unique
+        a2c[i] = list(set(a2c[i]))
+    return a2c
+
 # TODO might not be the most efficient way
 def matmul_bool(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
@@ -231,21 +258,36 @@ def matmul_(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return (a @ b).clamp(None, 1)
 
 
-def precompute_adjacency(data: HetData) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def precompute_adjacency(data: HetData) -> dict[str, dict[str, list[list[int]]]]:
     n_faces = data.faces.shape[0]
     n_loops = data.loops.shape[0]
     n_edges = data.edges.shape[0]
     n_vertices = data.vertices.shape[0]
 
-    f2l = construct_adjacency_matrix(data.face_to_loop, n_faces, n_loops)
-    l2e = construct_adjacency_matrix(data.loop_to_edge, n_loops, n_edges)
-    e2v = construct_adjacency_matrix(data.edge_to_vertex, n_edges, n_vertices)
+    f2l, l2f = construct_adjacency_list(data.face_to_loop, n_faces, n_loops)
+    l2e, e2l = construct_adjacency_list(data.loop_to_edge, n_loops, n_edges)
+    e2v, v2e = construct_adjacency_list(data.edge_to_vertex, n_edges, n_vertices)
 
-    f2e = matmul_bool(f2l, l2e)
-    f2v = matmul_bool(f2e, e2v)
+    f2e = combine_adjacency_list(f2l, l2e)
+    e2f = combine_adjacency_list(e2l, l2f)
 
-    return f2e, f2v, e2v
+    f2v = combine_adjacency_list(f2e, e2v)
+    v2f = combine_adjacency_list(v2e, e2f)
 
+    return {
+        "f": {"f": [[] for _ in range(n_faces)], "e": f2e, "v": f2v },
+        "e": {"f": e2f, "e": [[] for _ in range(n_edges)], "v": e2v },
+        "v": {"f": v2f, "e": e2v, "v": [[] for _ in range(n_vertices)]}
+    }
+
+def add_match_to_frontier(u: int, v: int, ka: str,
+                          adj_data_l: dict[str, dict[str, list[list[int]]]],
+                          adj_data_r: dict[str, dict[str, list[list[int]]]],
+                          adj_l: dict[str, torch.Tensor],
+                          adj_r: dict[str, torch.Tensor]) -> None:
+    for _, _, kb in TOPO_KINDS:
+        adj_l[kb][adj_data_l[ka][kb][u]] = True
+        adj_r[kb][adj_data_r[ka][kb][v]] = True
 
 def propagate_adjacency(data: HetData,
                         adj_left: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
