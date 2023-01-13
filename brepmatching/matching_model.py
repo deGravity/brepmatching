@@ -29,6 +29,16 @@ from typing import Any
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
+class WeightedBCELoss:
+    """
+    Binary Cross Entropy Loss but weighted for target 0.
+    """
+    def __init__(self, weight: float = 1.0):
+        self.weight = weight
+        self.loss = BCELoss(reduction="sum")
+
+    def __call__(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self.loss(x[y == 1], y[y == 1]) + self.weight * self.loss(x[y == 0], y[y == 0])
 
 class MatchingModel(pl.LightningModule):
 
@@ -61,7 +71,8 @@ class MatchingModel(pl.LightningModule):
         threshold: float = 0.75,
         use_adjacency: bool = False,
         test_greedy: bool = True,
-        test_iterative_vs_threshold: bool = True
+        test_iterative_vs_threshold: bool = True,
+        bce_loss_weight: float = 1.0
         ):
         super().__init__()
 
@@ -94,7 +105,7 @@ class MatchingModel(pl.LightningModule):
             Linear(sbgcn_size, 1),
             Sigmoid()
         )
-        self.loss = BCELoss(reduction="sum") 
+        self.loss = WeightedBCELoss(weight=bce_loss_weight) if bce_loss_weight != 1.0 else BCELoss(reduction="sum")
         self.test_greedy = test_greedy
         self.test_iterative_vs_threshold = test_iterative_vs_threshold
         self.use_adjacency = use_adjacency
