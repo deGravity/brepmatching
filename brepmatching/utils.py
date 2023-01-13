@@ -211,7 +211,7 @@ def batch_matches(matches, left_topo_batches, right_topo_batches):
 
 def construct_adjacency_matrix(edge_indices: torch.Tensor, n_a, n_b) -> torch.Tensor:
     res = torch.zeros((n_a, n_b), dtype=torch.bool, device=edge_indices.device)
-    res[edge_indices[0]][edge_indices[1]] = True
+    res[edge_indices[0], edge_indices[1]] = True
     return res
 
 # TODO might not be the most efficient way
