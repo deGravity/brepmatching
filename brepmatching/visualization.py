@@ -1,9 +1,16 @@
 import numpy as np
 from matplotlib.colors import hsv_to_rgb
-from PIL import Image
+from PIL import Image, ImageColor
 
 from . import rendering
 
+plot_colors = {
+    'true_positive':'#468CB8',
+    'true_negative':'#61B5CF',
+    'missed':'#D6CFB8',
+    'incorrect':'#D4756C',
+    'false_positive':'#BA5050'
+}
 
 def make_colormap(N, colors):
     c1,c2 = map(np.array, colors)

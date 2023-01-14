@@ -10,7 +10,7 @@ from automate import Part, PartFeatures, PartOptions, part_to_graph
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 
-from .utils import zip_hetdata
+from .utils import zip_hetdata, make_containing_dir
 import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
 
@@ -243,7 +243,7 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
                         self.original_index.append(variation_index)
             self.group = torch.tensor(self.group).long()
             if cache_path is not None:
-                os.makedirs(os.path.dirname(cache_path),exist_ok=True)
+                make_containing_dir(cache_path)
                 cached_data = {
                     'preprocessed_data':self.preprocessed_data,
                     'group':self.group,

@@ -1,9 +1,11 @@
+from contextlib import contextmanager
 from automate import HetData
 from torch import is_tensor
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import os
 
 def zip_hetdata(left, right):
     common_keys = set(left.keys).intersection(right.keys)
@@ -287,3 +289,18 @@ class Running_avg:
         self.state[:] = 0
         self.count = 0.0
         return val
+
+
+def make_containing_dir(filepath):
+    """Ensure that the directory part of filepath exists."""
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+
+@contextmanager
+def safe_open(path, mode):
+    """Open a file and create parent directories if necessary."""
+    make_containing_dir(path)
+    file = open(path, mode)
+    try:
+        yield file
+    finally:
+        file.close()
