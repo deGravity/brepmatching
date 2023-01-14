@@ -6,7 +6,7 @@
 int main(void) {
     auto matching = make_matching(SHORTBOX, LONGBOX, false);
     auto shortbox_types = get_export_id_types(SHORTBOX);
-    auto longbox_types = get_export_id_types(LONGBOX);
+    auto longbox_types = get_export_id_types(LONGERBOX);
 
     
     std::cout << "Face Matches:\n";
@@ -30,6 +30,21 @@ int main(void) {
         std::cout << id1 << "(" << shortbox_types[id1] << ")" << " , " << id2 << "(" << longbox_types[id2] << ")" << "\n";
     }
 
+    std::cout << "Face Overlaps:\n";
+    for (auto m : matching.face_overlaps) {
+        auto& id1 = std::get<0>(m);
+        auto& id2 = std::get<1>(m);
+        std::cout << id1 << "(" << shortbox_types[id1] << ")" << " , " << id2 << "(" << longbox_types[id2] << ")" << "\n";
+    }
+
+    std::cout << "Edge Overlaps:\n";
+    for (auto m : matching.edge_overlaps) {
+        auto& id1 = std::get<0>(m);
+        auto& id2 = std::get<1>(m);
+        std::cout << id1 << "(" << shortbox_types[id1] << ")" << " , " << id2 << "(" << longbox_types[id2] << ")" << "\n";
+    }
+
+    std::cout << "JSON Representation:\n";
     std::cout << matching.json();
 
     return 0;

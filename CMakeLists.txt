@@ -37,3 +37,4 @@ add_definitions(-DPART2="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/output
 add_definitions(-DMATCHING="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/match.json")
 add_definitions(-DSHORTBOX="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/short_box.x_t")
 add_definitions(-DLONGBOX="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/long_box.x_t")
+add_definitions(-DLONGERBOX="${CMAKE_CURRENT_SOURCE_DIR}/coincidence_matching/longer_box.x_t")

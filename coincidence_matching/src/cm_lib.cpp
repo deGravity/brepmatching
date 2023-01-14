@@ -399,6 +399,8 @@ bool points_coincident(double* p1, double* p2) {
 
 Matching make_matching(std::string part1, std::string part2, bool exact) {
 
+    PK_ERROR_t err = PK_ERROR_no_errors;
+
     auto bodies1 = read_xt(part1);
     auto bodies2 = read_xt(part2);
 
@@ -411,7 +413,6 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
     auto p1_topo = read_topology(bodies1[0]);
     auto p2_topo = read_topology(bodies2[0]);
 
-    PK_ERROR_t err = PK_ERROR_no_errors;
 
     std::vector<std::tuple<std::string, std::string>> face_matches;
     std::vector<std::tuple<std::string, std::string>> edge_matches;
@@ -419,7 +420,9 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
     std::vector<std::tuple<std::string, std::string>> face_overlaps;
     std::vector<std::tuple<std::string, std::string>> edge_overlaps;
-    std::vector<std::tuple<std::string, std::string>> vertex_overlaps;
+
+    err = PK_SESSION_set_general_topology(PK_LOGICAL_true);
+    assert(err == PK_ERROR_no_errors); // PK_SESSION_set_general_topology
 
     // Match Faces
     for (auto p1_face : p1_topo.faces) {
@@ -459,89 +462,82 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                 assert(err == PK_ERROR_no_errors); // PK_ENTITY_ask_class
 
                 if (p1_surf_class != p2_surf_class) continue;
-                if ((p1_surf_class == PK_CLASS_plane) || (p1_surf_class == PK_CLASS_cyl) || (p1_surf_class == PK_CLASS_cone) || (p1_surf_class == PK_CLASS_torus) || (p1_surf_class == PK_CLASS_sphere)) {
                     
-                    PK_LOGICAL_t surfs_coincident;
-                    err = PK_GEOM_is_coincident(p1_surf, p2_surf, &surfs_coincident);
-                    assert(err == PK_ERROR_no_errors); // PK_GEOM_is_coincident
+                PK_LOGICAL_t surfs_coincident;
+                err = PK_GEOM_is_coincident(p1_surf, p2_surf, &surfs_coincident);
+                assert(err == PK_ERROR_no_errors); // PK_GEOM_is_coincident
 
-                    if (!surfs_coincident) continue;
+                if (!surfs_coincident) continue;
 
-                    PK_FACE_make_sheet_bodies_o_t make_sheet_opts;
-                    PK_FACE_make_sheet_bodies_o_m(make_sheet_opts);
-                    int n_bodies1;
-                    PK_BODY_t* bodies1;
-                    PK_TOPOL_track_r_t tracking1;
-                    err = PK_FACE_make_sheet_bodies(1, &p1_face, &make_sheet_opts, &n_bodies1, &bodies1, &tracking1);
-                    assert(err == PK_ERROR_no_errors);
+                PK_FACE_make_sheet_bodies_o_t make_sheet_opts;
+                PK_FACE_make_sheet_bodies_o_m(make_sheet_opts);
+                int n_bodies1;
+                PK_BODY_t* bodies1;
+                PK_TOPOL_track_r_t tracking1;
+                err = PK_FACE_make_sheet_bodies(1, &p1_face, &make_sheet_opts, &n_bodies1, &bodies1, &tracking1);
+                assert(err == PK_ERROR_no_errors);
 
-                    int n_bodies2;
-                    PK_BODY_t* bodies2;
-                    PK_TOPOL_track_r_t tracking2;
-                    err = PK_FACE_make_sheet_bodies(1, &p1_face, &make_sheet_opts, &n_bodies2, &bodies2, &tracking2);
-                    assert(err == PK_ERROR_no_errors);
+                int n_bodies2;
+                PK_BODY_t* bodies2;
+                PK_TOPOL_track_r_t tracking2;
+                err = PK_FACE_make_sheet_bodies(1, &p1_face, &make_sheet_opts, &n_bodies2, &bodies2, &tracking2);
+                assert(err == PK_ERROR_no_errors);
 
-                    assert(n_bodies1 == 1);
-                    assert(n_bodies2 == 1);
+                assert(n_bodies1 == 1);
+                assert(n_bodies2 == 1);
 
-                    PK_BODY_boolean_o_t bool_opts;
-                    PK_BODY_boolean_o_m(bool_opts);
+                PK_BODY_boolean_o_t bool_opts;
+                PK_BODY_boolean_o_m(bool_opts);
                     
-                    /*
-                    1. What tolerance are you using for PK_FACE_is_coincidence to exactly match faces? I've been using 1e-8 since I thought I heard you say that's what you used.
-                        Looking at the code, it's actually 1e-5.  1e-8 is way too tight.
-                    2. What epsilon do you use for point distances? I'm currently using d^2 <= 1e-16
-                        Same, 1e-5 -- so d^2 <= 1e-10
-                    3. What do you use for the accuracy parameter of PK_TOPOL_eval_mass_props when measuring surface areas for comparison to 80% overlap? I'm currently using .999
-                        Yes, that's what we use.  Also for centroid computation.
-                    4. Are you using PK_BODY_boolean_2 to intersect faces / edges, and if so, which (if any) non-default options are used in the options structure (PK_BODY_boolean_o_t)?
-                        Yes, we're using PK_BODY_boolean_2.  We use max_tol = 1e-5, matched_region is set to the default except match_style = PK_boolean_match_style_auto_c
+
+
+                bool_opts.function = PK_boolean_intersect_c;
+                bool_opts.max_tol = BOOL_MAX_TOL;
+
+                PK_boolean_match_o_t match_opts;
+                PK_boolean_match_o_m(match_opts);
+                match_opts.match_style = PK_boolean_match_style_auto_c;
+                bool_opts.matched_region = &match_opts;
+
+                PK_TOPOL_track_r_t bool_tracking;
+                PK_boolean_r_t bool_results;
+
+                err = PK_BODY_boolean_2(bodies1[0], 1, bodies2, &bool_opts, &bool_tracking, &bool_results);
+                assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
+
+                PK_TOPOL_eval_mass_props_o_t mass_prop_opts;
+                PK_TOPOL_eval_mass_props_o_m(mass_prop_opts);
                     
-                    */
+                assert(bool_results.n_bodies == 1);
 
-                    bool_opts.function = PK_boolean_intersect_c;
-                    bool_opts.max_tol = BOOL_MAX_TOL;
+                double sheet1_amount, sheet2_amount, intersection_amount, mass, c_of_g[3], m_of_i[9], periphery;
 
-                    PK_boolean_match_o_t match_opts;
-                    PK_boolean_match_o_m(match_opts);
-                    match_opts.match_style = PK_boolean_match_style_auto_c;
-                    bool_opts.matched_region = &match_opts;
+                err = PK_TOPOL_eval_mass_props(1, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &intersection_amount, &mass, c_of_g, m_of_i, &periphery);
+                assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
 
-                    PK_TOPOL_track_r_t bool_tracking;
-                    PK_boolean_r_t bool_results;
+                err = PK_TOPOL_eval_mass_props(1, &p1_face, MASS_PROP_TOL, &mass_prop_opts, &sheet1_amount, &mass, c_of_g, m_of_i, &periphery);
+                assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
+                err = PK_TOPOL_eval_mass_props(1, &p2_face, MASS_PROP_TOL, &mass_prop_opts, &sheet2_amount, &mass, c_of_g, m_of_i, &periphery);
+                assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
 
-                    err = PK_BODY_boolean_2(bodies1[0], 1, bodies2, &bool_opts, &bool_tracking, &bool_results);
-                    assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
+                double original_size = sheet1_amount < sheet2_amount ? sheet1_amount : sheet2_amount;
 
-                    PK_TOPOL_eval_mass_props_o_t mass_prop_opts;
-                    PK_TOPOL_eval_mass_props_o_m(mass_prop_opts);
-                    
-                    assert(bool_results.n_bodies == 1);
-
-                    double sheet1_amount, sheet2_amount, intersection_amount, mass, c_of_g[3], m_of_i[9], periphery;
-
-                    err = PK_TOPOL_eval_mass_props(1, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &intersection_amount, &mass, c_of_g, m_of_i, &periphery);
-                    assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
-
-                    err = PK_TOPOL_eval_mass_props(1, &p1_face, MASS_PROP_TOL, &mass_prop_opts, &sheet1_amount, &mass, c_of_g, m_of_i, &periphery);
-                    assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
-                    err = PK_TOPOL_eval_mass_props(1, &p2_face, MASS_PROP_TOL, &mass_prop_opts, &sheet2_amount, &mass, c_of_g, m_of_i, &periphery);
-                    assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
-
-                    double original_size = sheet1_amount < sheet2_amount ? sheet1_amount : sheet2_amount;
-
-                    if (intersection_amount >= .8 * original_size) {
-                        auto p1_face_id_it = p1_topo_map.find(p1_face);
-                        auto p2_face_id_it = p2_topo_map.find(p2_face);
-                        assert(p1_face_id_it != p1_topo_map.end());
-                        assert(p2_face_id_it != p2_topo_map.end());
-                        face_overlaps.push_back(std::make_tuple(p1_face_id_it->second, p2_face_id_it->second));
-                        break;
-                    }
+                if (intersection_amount >= .8 * original_size) {
+                    auto p1_face_id_it = p1_topo_map.find(p1_face);
+                    auto p2_face_id_it = p2_topo_map.find(p2_face);
+                    assert(p1_face_id_it != p1_topo_map.end());
+                    assert(p2_face_id_it != p2_topo_map.end());
+                    face_overlaps.push_back(std::make_tuple(p1_face_id_it->second, p2_face_id_it->second));
 
                     PK_MEMORY_free(bodies1);
                     PK_MEMORY_free(bodies2);
+
+                    break;
                 }
+
+                PK_MEMORY_free(bodies1);
+                PK_MEMORY_free(bodies2);
+                
             }
         }
     }
@@ -598,6 +594,63 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                         assert(p1_edge_id_it != p1_topo_map.end());
                         assert(p2_edge_id_it != p2_topo_map.end());
                         edge_matches.push_back(std::make_tuple(p1_edge_id_it->second, p2_edge_id_it->second));
+                        break;
+                    }
+                }
+
+                if (!exact) {
+                    PK_EDGE_make_wire_body_o_t wire_body_options;
+                    PK_EDGE_make_wire_body_o_m(wire_body_options); // TODO - Ask Ilya about exact arguments
+                    PK_BODY_t wire_body_1, wire_body_2;
+                    PK_TOPOL_track_r_t tracking_1, tracking_2;
+                    err = PK_EDGE_make_wire_body(1, &p1_edge, &wire_body_options, &wire_body_1, &tracking_1);
+                    assert(err == PK_ERROR_no_errors); // PK_EDGE_make_wire_body
+                    err = PK_EDGE_make_wire_body(1, &p2_edge, &wire_body_options, &wire_body_2, &tracking_2);
+                    assert(err == PK_ERROR_no_errors); // PK_EDGE_make_wire_body
+
+
+                    // Set up Boolean Options
+                    PK_BODY_boolean_o_t bool_opts;
+                    PK_BODY_boolean_o_m(bool_opts);
+                    bool_opts.function = PK_boolean_subtract_c;
+                    bool_opts.max_tol = BOOL_MAX_TOL;
+                    PK_boolean_match_o_t match_opts;
+                    PK_boolean_match_o_m(match_opts);
+                    match_opts.match_style = PK_boolean_match_style_auto_c;
+                    bool_opts.matched_region = &match_opts;
+
+                    PK_TOPOL_track_r_t bool_tracking;
+                    PK_boolean_r_t bool_results;
+
+                    err = PK_BODY_boolean_2(wire_body_1, 1, &wire_body_2, &bool_opts, &bool_tracking, &bool_results);
+                    assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
+                    //assert(bool_results.n_bodies == 1);
+
+                    PK_TOPOL_eval_mass_props_o_t mass_prop_opts;
+                    PK_TOPOL_eval_mass_props_o_m(mass_prop_opts);
+
+
+                    double wire_1_length, wire_2_length, orig_minus_var_length, mass, c_of_g[3], m_of_i[9], periphery;
+
+                    err = PK_TOPOL_eval_mass_props(bool_results.n_bodies, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &orig_minus_var_length, &mass, c_of_g, m_of_i, &periphery);
+                    assert(err == PK_ERROR_no_errors || err == PK_ERROR_mass_eq_0);
+
+                    err = PK_TOPOL_eval_mass_props(1, &p1_edge, MASS_PROP_TOL, &mass_prop_opts, &wire_1_length, &mass, c_of_g, m_of_i, &periphery);
+                    assert(err == PK_ERROR_no_errors || err == PK_ERROR_mass_eq_0); // PK_TOPOL_eval_mass_props
+                    err = PK_TOPOL_eval_mass_props(1, &p2_edge, MASS_PROP_TOL, &mass_prop_opts, &wire_2_length, &mass, c_of_g, m_of_i, &periphery);
+                    assert(err == PK_ERROR_no_errors || err == PK_ERROR_mass_eq_0); // PK_TOPOL_eval_mass_props
+
+
+                    double intersection_length = wire_1_length - orig_minus_var_length;
+                    double original_length = wire_1_length < wire_2_length ? wire_1_length : wire_2_length; // original_length = min(wire_1_length, wire_2_length)
+
+                    if (intersection_length >= .8 * original_length) {
+                        auto p1_edge_id_it = p1_topo_map.find(p1_edge);
+                        auto p2_edge_id_it = p2_topo_map.find(p2_edge);
+                        assert(p1_edge_id_it != p1_topo_map.end());
+                        assert(p2_edge_id_it != p2_topo_map.end());
+                        edge_overlaps.push_back(std::make_tuple(p1_edge_id_it->second, p2_edge_id_it->second));
+                        break;
                     }
                 }
             }
@@ -634,7 +687,6 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
     m.face_overlaps = face_overlaps;
     m.edge_overlaps = edge_overlaps;
-    m.vertex_overlaps = vertex_overlaps;
 
     return m;
 }
