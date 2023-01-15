@@ -445,93 +445,95 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                 break;
             }
 
-            PK_SURF_t p1_surf, p2_surf;
-            err = PK_FACE_ask_surf(p1_face, &p1_surf);
-            assert(err == PK_ERROR_no_errors); // PK_FACE_ask_surf
-            err = PK_FACE_ask_surf(p2_face, &p2_surf);
-            assert(err == PK_ERROR_no_errors); // PK_FACE_ask_surf
+            if (!exact) {
+                PK_SURF_t p1_surf, p2_surf;
+                err = PK_FACE_ask_surf(p1_face, &p1_surf);
+                assert(err == PK_ERROR_no_errors); // PK_FACE_ask_surf
+                err = PK_FACE_ask_surf(p2_face, &p2_surf);
+                assert(err == PK_ERROR_no_errors); // PK_FACE_ask_surf
 
-            PK_CLASS_t p1_surf_class, p2_surf_class;
+                PK_CLASS_t p1_surf_class, p2_surf_class;
 
-            PK_ENTITY_ask_class(p1_surf, &p1_surf_class);
-            assert(err == PK_ERROR_no_errors); // PK_ENTITY_ask_class
-            PK_ENTITY_ask_class(p2_surf, &p2_surf_class);
-            assert(err == PK_ERROR_no_errors); // PK_ENTITY_ask_class
+                PK_ENTITY_ask_class(p1_surf, &p1_surf_class);
+                assert(err == PK_ERROR_no_errors); // PK_ENTITY_ask_class
+                PK_ENTITY_ask_class(p2_surf, &p2_surf_class);
+                assert(err == PK_ERROR_no_errors); // PK_ENTITY_ask_class
 
-            if (p1_surf_class != p2_surf_class) continue;
+                if (p1_surf_class != p2_surf_class) continue;
 
-            PK_LOGICAL_t surfs_coincident;
-            err = PK_GEOM_is_coincident(p1_surf, p2_surf, &surfs_coincident);
-            assert(err == PK_ERROR_no_errors); // PK_GEOM_is_coincident
+                PK_LOGICAL_t surfs_coincident;
+                err = PK_GEOM_is_coincident(p1_surf, p2_surf, &surfs_coincident);
+                assert(err == PK_ERROR_no_errors); // PK_GEOM_is_coincident
 
-            if (!surfs_coincident) continue;
+                if (!surfs_coincident) continue;
 
-            // Compute Surface Areas Make sure to do this first in case the intersection modifies the faces somehow
-            double face1_SA, face2_SA, mass, c_of_g[3], m_of_i[9], periphery;
-            PK_TOPOL_eval_mass_props_o_t mass_prop_opts;
-            PK_TOPOL_eval_mass_props_o_m(mass_prop_opts);
+                // Compute Surface Areas Make sure to do this first in case the intersection modifies the faces somehow
+                double face1_SA, face2_SA, mass, c_of_g[3], m_of_i[9], periphery;
+                PK_TOPOL_eval_mass_props_o_t mass_prop_opts;
+                PK_TOPOL_eval_mass_props_o_m(mass_prop_opts);
 
-            err = PK_TOPOL_eval_mass_props(1, &p1_face, MASS_PROP_TOL, &mass_prop_opts, &face1_SA, &mass, c_of_g, m_of_i, &periphery);
-            assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
-            err = PK_TOPOL_eval_mass_props(1, &p2_face, MASS_PROP_TOL, &mass_prop_opts, &face2_SA, &mass, c_of_g, m_of_i, &periphery);
-            assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
-
-
-            PK_FACE_make_sheet_bodies_o_t make_sheet_opts;
-            PK_FACE_make_sheet_bodies_o_m(make_sheet_opts); // Do we need to force copies in here?
-            
-            int n_bodies1;
-            PK_BODY_t* bodies1;
-            PK_TOPOL_track_r_t tracking1;
-            err = PK_FACE_make_sheet_bodies(1, &p1_face, &make_sheet_opts, &n_bodies1, &bodies1, &tracking1);
-            assert(err == PK_ERROR_no_errors);
-            int n_bodies2;
-            PK_BODY_t* bodies2;
-            PK_TOPOL_track_r_t tracking2;
-            err = PK_FACE_make_sheet_bodies(1, &p2_face, &make_sheet_opts, &n_bodies2, &bodies2, &tracking2);
-            assert(err == PK_ERROR_no_errors);
-            assert(n_bodies1 == 1);
-            assert(n_bodies2 == 1);
-
-            PK_BODY_t sheet1 = bodies1[0];
-            PK_BODY_t sheet2 = bodies2[0];
+                err = PK_TOPOL_eval_mass_props(1, &p1_face, MASS_PROP_TOL, &mass_prop_opts, &face1_SA, &mass, c_of_g, m_of_i, &periphery);
+                assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
+                err = PK_TOPOL_eval_mass_props(1, &p2_face, MASS_PROP_TOL, &mass_prop_opts, &face2_SA, &mass, c_of_g, m_of_i, &periphery);
+                assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
 
 
-            // Intersect the Faces
-            PK_BODY_boolean_o_t bool_opts;
-            PK_BODY_boolean_o_m(bool_opts);
+                PK_FACE_make_sheet_bodies_o_t make_sheet_opts;
+                PK_FACE_make_sheet_bodies_o_m(make_sheet_opts); // Do we need to force copies in here?
+                
+                int n_bodies1;
+                PK_BODY_t* bodies1;
+                PK_TOPOL_track_r_t tracking1;
+                err = PK_FACE_make_sheet_bodies(1, &p1_face, &make_sheet_opts, &n_bodies1, &bodies1, &tracking1);
+                assert(err == PK_ERROR_no_errors);
+                int n_bodies2;
+                PK_BODY_t* bodies2;
+                PK_TOPOL_track_r_t tracking2;
+                err = PK_FACE_make_sheet_bodies(1, &p2_face, &make_sheet_opts, &n_bodies2, &bodies2, &tracking2);
+                assert(err == PK_ERROR_no_errors);
+                assert(n_bodies1 == 1);
+                assert(n_bodies2 == 1);
 
-            bool_opts.function = PK_boolean_intersect_c;
-            bool_opts.max_tol = BOOL_MAX_TOL;
+                PK_BODY_t sheet1 = bodies1[0];
+                PK_BODY_t sheet2 = bodies2[0];
 
-            PK_boolean_match_o_t match_opts;
-            PK_boolean_match_o_m(match_opts);
-            match_opts.match_style = PK_boolean_match_style_auto_c;
-            bool_opts.matched_region = &match_opts;
 
-            PK_TOPOL_track_r_t bool_tracking;
-            PK_boolean_r_t bool_results;
+                // Intersect the Faces
+                PK_BODY_boolean_o_t bool_opts;
+                PK_BODY_boolean_o_m(bool_opts);
 
-            err = PK_BODY_boolean_2(sheet1, 1, &sheet2, &bool_opts, &bool_tracking, &bool_results);
-            assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
+                bool_opts.function = PK_boolean_intersect_c;
+                bool_opts.max_tol = BOOL_MAX_TOL;
 
-            double intersection_SA;
+                PK_boolean_match_o_t match_opts;
+                PK_boolean_match_o_m(match_opts);
+                match_opts.match_style = PK_boolean_match_style_auto_c;
+                bool_opts.matched_region = &match_opts;
 
-            err = PK_TOPOL_eval_mass_props(bool_results.n_bodies, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &intersection_SA, &mass, c_of_g, m_of_i, &periphery);
-            assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
+                PK_TOPOL_track_r_t bool_tracking;
+                PK_boolean_r_t bool_results;
 
-            double original_size = face1_SA < face2_SA ? face1_SA : face2_SA;
+                err = PK_BODY_boolean_2(sheet1, 1, &sheet2, &bool_opts, &bool_tracking, &bool_results);
+                assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
 
-            PK_TOPOL_track_r_f(&bool_tracking);
-            PK_boolean_r_f(&bool_results);
+                double intersection_SA;
 
-            if (intersection_SA >= .8 * original_size) {
-                auto p1_face_id_it = p1_topo_map.find(p1_face);
-                auto p2_face_id_it = p2_topo_map.find(p2_face);
-                assert(p1_face_id_it != p1_topo_map.end());
-                assert(p2_face_id_it != p2_topo_map.end());
-                face_overlaps.push_back(std::make_tuple(p1_face_id_it->second, p2_face_id_it->second));
-                break;
+                err = PK_TOPOL_eval_mass_props(bool_results.n_bodies, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &intersection_SA, &mass, c_of_g, m_of_i, &periphery);
+                assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
+
+                double original_size = face1_SA < face2_SA ? face1_SA : face2_SA;
+
+                PK_TOPOL_track_r_f(&bool_tracking);
+                PK_boolean_r_f(&bool_results);
+
+                if (intersection_SA >= .8 * original_size) {
+                    auto p1_face_id_it = p1_topo_map.find(p1_face);
+                    auto p2_face_id_it = p2_topo_map.find(p2_face);
+                    assert(p1_face_id_it != p1_topo_map.end());
+                    assert(p2_face_id_it != p2_topo_map.end());
+                    face_overlaps.push_back(std::make_tuple(p1_face_id_it->second, p2_face_id_it->second));
+                    break;
+                }
             }
         }
     }
