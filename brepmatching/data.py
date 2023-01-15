@@ -228,8 +228,6 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
                         variations = pd.read_csv(f)
                 if 'fail' in variations.columns:
                     variations = variations[variations.fail == 0]
-                if 'translationFail' in variations.columns:
-                    variations = variations[variations.translationFail == 0]
                 orig_id_dict = dict((k,v) for v,k in enumerate(variations.ps_orig.unique()))
                 self.group = []
                 self.original_index = []
@@ -245,11 +243,16 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
                     bl_o_path = None
                     bl_v_path = None
 
+                    skip_onshape_baseline = True
+
                     if 'baselineMatch' in variations.columns:
                         bl_m_path = 'data/baseline/' + variation_record.baselineMatch
                         bl_o_path = 'data/baseline/' + variation_record.baselineOrig
                         bl_v_path = 'data/baseline/' + variation_record.baselineNew
-                    data = make_match_data(zf, o_path, v_path, m_path, bl_o_path, bl_v_path, bl_m_path)
+
+                        skip_onshape_baseline = variation_record.translationFail == 1
+
+                    data = make_match_data(zf, o_path, v_path, m_path, bl_o_path, bl_v_path, bl_m_path, skip_onshape_baseline=skip_onshape_baseline)
                     if data is not None:
                         self.group.append(orig_id_dict[variation_record.ps_orig])
                         self.preprocessed_data.append(data)
