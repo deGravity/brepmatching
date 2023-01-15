@@ -19,12 +19,14 @@ from .transforms import *
 
 
 
-def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, bl_m_path, include_meshes=True):
+def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, bl_m_path, include_meshes=True, skip_onshape_baseline=False):
+    has_baseline_data = False
     if orig_path not in zf.namelist() or var_path not in zf.namelist() or match_path not in zf.namelist():
         return None
     if bl_o_path is not None:
+        has_baseline_data = True
         if bl_o_path not in zf.namelist() or bl_v_path not in zf.namelist() or bl_m_path not in zf.namelist():
-            return None
+            has_baseline_data = False
     options = PartOptions()
     if not include_meshes:
         options.tesselate = False
@@ -114,7 +116,17 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     data.__edge_sets__['bl_exact_vertices_matches'] = ['left_vertices', 'right_vertices']
 
     # Setup Onshape Baseline
-    if bl_m_path is None or bl_o_path is None or bl_v_path is None:
+    if bl_m_path is None or bl_o_path is None or bl_v_path is None or not has_baseline_data or skip_onshape_baseline:
+        
+        data.os_bl_faces_matches = torch.empty((2,0)).long()
+        data.__edge_sets__['os_bl_faces_matches'] = ['left_faces', 'right_faces']
+        data.os_bl_edges_matches = torch.empty((2,0)).long()
+        data.__edge_sets__['os_bl_edges_matches'] = ['left_edges', 'right_edges']
+        data.os_bl_vertices_matches = torch.empty((2,0)).long()
+        data.__edge_sets__['os_bl_vertices_matches'] = ['left_vertices', 'right_vertices']
+        data.n_onshape_baseline_unmatched = torch.tensor([0]).long()
+        data.has_onshape_baseline = torch.tensor([False]).bool()
+
         return data # Stop now if we don't have baselines in the dataset
 
     with zf.open(bl_m_path,'r') as f:
@@ -161,6 +173,7 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     data.os_bl_vertices_matches = os_bl_vert_matches
     data.__edge_sets__['os_bl_vertices_matches'] = ['left_vertices', 'right_vertices']
     data.n_onshape_baseline_unmatched = torch.tensor([num_onshape_baseline_unmatched]).long()
+    data.has_onshape_baseline = torch.tensor([True]).bool()
 
     return data
 
