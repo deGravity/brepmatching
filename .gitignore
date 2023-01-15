@@ -12,6 +12,8 @@ data/*.pt
 
 vsbuild/
 
+notebooks/scratch.ipynb
+
 # Distribution / packaging
 .Python
 build/

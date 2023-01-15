@@ -70,12 +70,10 @@ class PairEmbedder(torch.nn.Module):
 
                 face_match_types = torch.cat([face_match_types, torch.full((batch.bl_overlap_faces_matches.shape[1],),7,device=face_match_types.device)])
                 edge_match_types = torch.cat([edge_match_types, torch.full((batch.bl_overlap_edges_matches.shape[1],),8,device=edge_match_types.device)])
-                vert_match_types = torch.cat([vert_match_types, torch.full((batch.bl_overlap_vertices_matches.shape[1],),9,device=vert_match_types.device)])
-
+                
                 face_matches = torch.cat([face_matches, batch.bl_overlap_faces_matches], dim=1)
                 edge_matches = torch.cat([edge_matches, batch.bl_overlap_edges_matches], dim=1)
-                vert_matches = torch.cat([vert_matches, batch.bl_overlap_vertices_matches], dim=1)
-            
+                
             # Put Everything into one big graph
             
             # Combine the Nodes
@@ -175,7 +173,8 @@ class PairEmbedder(torch.nn.Module):
             links = torch.cat([links, links[[1,0]]],dim=1)
             link_data = torch.cat([link_data, link_data])
 
-            # One-Hot Encode link data
+            # One-Hot Encode link data -- the one hot size should actually be 9 since vertices can't overlap,
+            # but we are keeping it at 10 for backwards compatibility
             link_data = torch.nn.functional.one_hot(link_data, 10).float()
 
             for gnn in self.prematch_gnns:

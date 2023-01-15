@@ -88,14 +88,18 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     data.__edge_sets__['vertices_matches'] = ['left_vertices', 'right_vertices']
 
     # Setup Baseline Matching
-    baseline_matching = match_parts(orig_part_data, var_part_data, True) # TODO - set exact to false once implemented
+    baseline_matching = match_parts(orig_part_data, var_part_data, False)
     bl_exact_face_matches = []
     bl_exact_edge_matches = []
     bl_exact_vert_matches = []
+    bl_overlap_face_matches = []
+    bl_overlap_edge_matches = []
     for matchings, orig_map, var_map, out_list in [
                 (baseline_matching.face_matches, orig_face_map, var_face_map, bl_exact_face_matches),
                 (baseline_matching.edge_matches, orig_edge_map, var_edge_map, bl_exact_edge_matches),
-                (baseline_matching.vertex_matches, orig_vert_map, var_vert_map, bl_exact_vert_matches)
+                (baseline_matching.vertex_matches, orig_vert_map, var_vert_map, bl_exact_vert_matches),
+                (baseline_matching.face_overlaps, orig_face_map, var_face_map, bl_overlap_face_matches),
+                (baseline_matching.edge_overlaps, orig_edge_map, var_edge_map, bl_overlap_edge_matches)
             ]:
         for o_t, v_t in matchings:
             o_t_h = export_id_hash(o_t)
@@ -107,6 +111,9 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     bl_exact_face_matches = match2tensor(bl_exact_face_matches)
     bl_exact_edge_matches = match2tensor(bl_exact_edge_matches)
     bl_exact_vert_matches = match2tensor(bl_exact_vert_matches)
+    bl_overlap_face_matches = match2tensor(bl_overlap_face_matches)
+    bl_overlap_edge_matches = match2tensor(bl_overlap_edge_matches)
+
 
     data.bl_exact_faces_matches = bl_exact_face_matches
     data.__edge_sets__['bl_exact_faces_matches'] = ['left_faces', 'right_faces']
@@ -114,6 +121,10 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     data.__edge_sets__['bl_exact_edges_matches'] = ['left_edges', 'right_edges']
     data.bl_exact_vertices_matches = bl_exact_vert_matches
     data.__edge_sets__['bl_exact_vertices_matches'] = ['left_vertices', 'right_vertices']
+    data.bl_overlap_faces_matches = bl_overlap_face_matches
+    data.__edge_sets__['bl_overlap_faces_matches'] = ['left_faces', 'right_faces']
+    data.bl_overlap_edges_matches = bl_overlap_edge_matches
+    data.__edge_sets__['bl_overlap_edges_matches'] = ['left_edges', 'right_edges']
 
     # Setup Onshape Baseline
     if bl_m_path is None or bl_o_path is None or bl_v_path is None or not has_baseline_data or skip_onshape_baseline:
