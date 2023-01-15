@@ -205,7 +205,7 @@ def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, ori
 
 follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'faces_matches', 'edges_matches', 'vertices_matches']
 class BRepMatchingDataset(torch.utils.data.Dataset):
-    def __init__(self, zip_path=None, cache_path=None, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None):
+    def __init__(self, zip_path=None, cache_path=None, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None, require_onshape_matchings=False):
         self.debug = debug
         self.transforms = compose(*transforms[::-1]) if transforms else None
         do_preprocess = True
@@ -284,6 +284,13 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
         self.test_identity = test_identity
 
         self.original_index = [self.original_index[i] for i,g in enumerate(self.group) if g.item() in groups_to_use]
+
+        self.require_onshape_matchings = require_onshape_matchings
+        if require_onshape_matchings:
+            data_with_onshape_matchings = [i for i,d in enumerate(self.preprocessed_data) if d.has_onshape_baseline]
+            self.preprocessed_data = [self.preprocessed_data[i] for i in data_with_onshape_matchings]
+            self.original_index = [self.original_index[i] for i in data_with_onshape_matchings]
+
         
     def __getitem__(self, idx):
         data = self.preprocessed_data[idx]
