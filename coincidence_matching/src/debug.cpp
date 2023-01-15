@@ -4,9 +4,14 @@
 #include <cm_lib.h>
 
 int main(void) {
-    auto matching = make_matching(SHORTBOX, LONGBOX, false);
-    auto shortbox_types = get_export_id_types(SHORTBOX);
-    auto longbox_types = get_export_id_types(LONGERBOX);
+    // short and long, and long and longer should have overlaps, but short and longer shouldn't
+    auto partA = SMALLCUBE;
+    auto partB = LARGECUBE;
+
+    auto matching = make_matching(partA, partB, false);
+
+    auto shortbox_types = get_export_id_types(partA);
+    auto longbox_types = get_export_id_types(partB);
 
     
     std::cout << "Face Matches:\n";
