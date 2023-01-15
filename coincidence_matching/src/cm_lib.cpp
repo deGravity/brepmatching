@@ -419,6 +419,10 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
     std::vector<std::tuple<std::string, std::string>> face_overlaps;
     std::vector<std::tuple<std::string, std::string>> edge_overlaps;
+    std::vector<double> larger_face_overlap_percentages;
+    std::vector<double> smaller_face_overlap_percentages;
+    std::vector<double> larger_edge_overlap_percentages;
+    std::vector<double> smaller_edge_overlap_percentages;
 
     err = PK_SESSION_set_general_topology(PK_LOGICAL_true);
     assert(err == PK_ERROR_no_errors); // PK_SESSION_set_general_topology
@@ -532,6 +536,12 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                     assert(p1_face_id_it != p1_topo_map.end());
                     assert(p2_face_id_it != p2_topo_map.end());
                     face_overlaps.push_back(std::make_tuple(p1_face_id_it->second, p2_face_id_it->second));
+
+                    double larger_face = face1_SA > face2_SA ? face1_SA : face2_SA;
+
+                    larger_face_overlap_percentages.push_back(intersection_SA / larger_face);
+                    smaller_face_overlap_percentages.push_back(intersection_SA / original_size);
+
                     break;
                 }
             }
@@ -650,6 +660,12 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                         assert(p1_edge_id_it != p1_topo_map.end());
                         assert(p2_edge_id_it != p2_topo_map.end());
                         edge_overlaps.push_back(std::make_tuple(p1_edge_id_it->second, p2_edge_id_it->second));
+
+                        double larger_original_length = wire_1_length > wire_2_length ? wire_1_length : wire_2_length;
+
+                        larger_edge_overlap_percentages.push_back(intersection_length / larger_original_length);
+                        smaller_edge_overlap_percentages.push_back(intersection_length / original_length);
+
                         break;
                     }
                 }
@@ -687,6 +703,13 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
     m.face_overlaps = face_overlaps;
     m.edge_overlaps = edge_overlaps;
+
+    m.larger_face_overlap_percentages = larger_face_overlap_percentages;
+    m.larger_edge_overlap_percentages = larger_edge_overlap_percentages;
+
+    m.smaller_face_overlap_percentages = smaller_face_overlap_percentages;
+    m.smaller_edge_overlap_percentages = smaller_edge_overlap_percentages;
+
 
     return m;
 }

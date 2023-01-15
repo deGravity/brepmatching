@@ -13,7 +13,11 @@ struct Matching {
     std::vector<std::tuple<std::string, std::string>> vertex_matches;
 
     std::vector<std::tuple<std::string, std::string>> face_overlaps;
+    std::vector<double> larger_face_overlap_percentages;
+    std::vector<double> smaller_face_overlap_percentages;
     std::vector<std::tuple<std::string, std::string>> edge_overlaps;
+    std::vector<double> larger_edge_overlap_percentages;
+    std::vector<double> smaller_edge_overlap_percentages;
 
     std::string json() const {
         std::stringstream ss;

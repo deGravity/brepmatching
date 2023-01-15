@@ -126,6 +126,11 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     data.bl_overlap_edges_matches = bl_overlap_edge_matches
     data.__edge_sets__['bl_overlap_edges_matches'] = ['left_edges', 'right_edges']
 
+    data.bl_overlap_larger_face_percentages = torch.tensor(baseline_matching.larger_face_overlap_percentages)
+    data.bl_overlap_smaller_face_percentages = torch.tensor(baseline_matching.smaller_face_overlap_percentages)
+    data.bl_overlap_larger_edge_percentages = torch.tensor(baseline_matching.larger_edge_overlap_percentages)
+    data.bl_overlap_smaller_edge_percentages = torch.tensor(baseline_matching.smaller_edge_overlap_percentages)
+
     # Setup Onshape Baseline
     if bl_m_path is None or bl_o_path is None or bl_v_path is None or not has_baseline_data or skip_onshape_baseline:
         
@@ -255,7 +260,7 @@ def combine_data(zip_paths: list[str], cache_path: str):
         'original_file': original_file
     }
     if cache_path is not None:
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        make_containing_dir(cache_path)
         torch.save(cached_data, cache_path)
     return cached_data
 

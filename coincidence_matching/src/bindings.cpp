@@ -79,6 +79,10 @@ PYBIND11_MODULE(coincidence_matching, m) {
 		.def_readwrite("vertex_matches", &Matching::vertex_matches)
 		.def_readwrite("face_overlaps", &Matching::face_overlaps)
 		.def_readwrite("edge_overlaps", &Matching::edge_overlaps)
+		.def_readwrite("larger_face_overlap_percentages", &Matching::larger_face_overlap_percentages)
+		.def_readwrite("larger_edge_overlap_percentages", &Matching::larger_edge_overlap_percentages)
+		.def_readwrite("smaller_face_overlap_percentages", &Matching::smaller_face_overlap_percentages)
+		.def_readwrite("smaller_edge_overlap_percentages", &Matching::smaller_edge_overlap_percentages)
 		.def("__repr__",
 			[](const Matching& matching) {
 				return matching.json();
