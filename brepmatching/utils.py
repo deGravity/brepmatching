@@ -437,9 +437,12 @@ def plot_the_fives(true_pos: np.ndarray,
                    incorrect: np.ndarray,
                    false_pos: np.ndarray,
                    thresholds: np.ndarray,
-                   title: str) -> Figure:
-    fig = Figure(figsize=(8, 8))
-    ax = fig.add_subplot()
+                   title: str,
+                   ax: plt.Axes = None) -> Figure:
+    fig = None
+    if ax is None:
+        fig = Figure(figsize=(8, 8))
+        ax = fig.add_subplot()
     ax.stackplot(thresholds, false_pos, incorrect, missed, true_neg, true_pos,
                  labels=["False Positive", "Incorrect", "Missed", "True Negative", "True Positive"],
                  colors=["#BA5050", "#D4756C", "#D6CFB8", "#61B5CF", "#468CB8"])
@@ -448,6 +451,7 @@ def plot_the_fives(true_pos: np.ndarray,
     ax.set_title(title)
     ax.set_ylim(-0.1, 1.1)
     ax.grid()
+    
     return fig
     
     
