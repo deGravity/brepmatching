@@ -281,10 +281,10 @@ class MatchingModel(pl.LightningModule):
 
             # score candidates
             scores_logits = self(data, cur_masks_bool)
-            scores = {k: F.sigmoid(scores_logits[k]) for k in scores_logits}
+            scores = {k: torch.sigmoid(scores_logits[k]) for k in scores_logits}
 
             # compute loss
-            loss += self.compute_loss(scores, gt_scores, cur_masks_bool)
+            loss += self.compute_loss(scores_logits, gt_scores, cur_masks_bool)
             n_iter += 1
 
             changed = False
@@ -339,8 +339,8 @@ class MatchingModel(pl.LightningModule):
         
         masks_bool = {k: (masks[k] != -1) for _, _, k in TOPO_KINDS}
         scores_logits = self(data, masks_bool)
-        scores = {k: F.sigmoid(scores_logits[k]) for k in scores_logits}
-        loss = self.compute_loss(scores, gt_scores, masks_bool)
+        scores = {k: torch.sigmoid(scores_logits[k]) for k in scores_logits}
+        loss = self.compute_loss(scores_logits, gt_scores, masks_bool)
         return loss, scores
 
     def do_greedy_and_compute_metric(self, data: HetData, init_strategy: str) -> tuple[torch.Tensor, dict[str, np.ndarray]]:
