@@ -219,51 +219,6 @@ def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, ori
     vert_matches = match2tensor(vert_matches)
     return face_matches,edge_matches,vert_matches
 
-def combine_data(zip_paths: list[str], cache_path: str):
-    preprocessed_data = []
-    group = []
-    original_index = []
-    original_file = []
-
-    for i, zip_path in enumerate(zip_paths):
-        print(f"Processing {zip_path}")
-        with ZipFile(zip_path, 'r') as zf:
-            with zf.open('data/VariationData/all_variations.csv','r') as f:
-                variations = pd.read_csv(f)
-            if 'fail' in variations.columns:
-                variations = variations[variations.fail == 0]
-            for i in tqdm(range(len(variations)), "Preprocessing Data"):
-                variation_record = variations.iloc[i]
-                variation_index = variations.index[i]
-
-                m_path = 'data/Matches/' + variation_record.matchFile
-                o_path = 'data/BrepsWithReference/' + variation_record.ps_orig
-                v_path = 'data/BrepsWithReference/' + variation_record.ps_var
-
-                data = make_match_data(zf, o_path, v_path, m_path)
-                if data is not None:
-                    group.append(variation_record.ps_orig)
-                    preprocessed_data.append(data)
-                    original_index.append(variation_index)
-                    original_file.append(i)
-    # unique group
-    group_set = set(group)
-    group_dict = dict((k, v) for v, k in enumerate(group_set))
-    for i in range(len(group)):
-        group[i] = group_dict[group[i]]
-    group = torch.tensor(group, dtype=torch.long)
-
-    cached_data = {
-        'preprocessed_data': preprocessed_data,
-        'group': group,
-        'original_index': original_index,
-        'original_file': original_file
-    }
-    if cache_path is not None:
-        make_containing_dir(cache_path)
-        torch.save(cached_data, cache_path)
-    return cached_data
-
 
 def load_data(zip_path=None, cache_path=None):
     if cache_path is not None:
