@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 from brepmatching.models import PairEmbedder
 import torch
-from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter, Linear, Sequential, ReLU, Sigmoid, BCELoss
+from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter, Linear, Sequential, ReLU, Sigmoid, BCEWithLogitsLoss
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
@@ -36,7 +36,7 @@ class WeightedBCELoss(torch.nn.Module):
     def __init__(self, weight: float = 1.0):
         super().__init__()
         self.weight = weight
-        self.loss = BCELoss(reduction="sum")
+        self.loss = BCEWithLogitsLoss(reduction="sum")
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         return self.loss(x[y == 1], y[y == 1]) + self.weight * self.loss(x[y == 0], y[y == 0])
@@ -99,10 +99,9 @@ class MatchingModel(pl.LightningModule):
         self.mlp = Sequential(
             Linear(sbgcn_size * 2, sbgcn_size),
             ReLU(),
-            Linear(sbgcn_size, 1),
-            Sigmoid()
+            Linear(sbgcn_size, 1)
         )
-        self.loss = WeightedBCELoss(weight=bce_loss_weight) if bce_loss_weight != 1.0 else BCELoss(reduction="sum")
+        self.loss = WeightedBCELoss(weight=bce_loss_weight) if bce_loss_weight != 1.0 else BCEWithLogitsLoss(reduction="sum")
         self.test_greedy = test_greedy
         self.test_iterative_vs_threshold = test_iterative_vs_threshold
         self.use_adjacency = use_adjacency
@@ -281,7 +280,8 @@ class MatchingModel(pl.LightningModule):
                     cur_masks_bool[k].logical_and_(adj_mask)
 
             # score candidates
-            scores = self(data, cur_masks_bool)
+            scores_logits = self(data, cur_masks_bool)
+            scores = {k: F.sigmoid(scores_logits[k]) for k in scores_logits}
 
             # compute loss
             loss += self.compute_loss(scores, gt_scores, cur_masks_bool)
@@ -338,7 +338,8 @@ class MatchingModel(pl.LightningModule):
         self.init_cur_match(data, masks, init_strategy)
         
         masks_bool = {k: (masks[k] != -1) for _, _, k in TOPO_KINDS}
-        scores = self(data, masks_bool)
+        scores_logits = self(data, masks_bool)
+        scores = {k: F.sigmoid(scores_logits[k]) for k in scores_logits}
         loss = self.compute_loss(scores, gt_scores, masks_bool)
         return loss, scores
 
