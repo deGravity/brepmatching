@@ -127,9 +127,13 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     data.__edge_sets__['bl_overlap_edges_matches'] = ['left_edges', 'right_edges']
 
     data.bl_overlap_larger_face_percentages = torch.tensor(baseline_matching.larger_face_overlap_percentages)
+    data.__node_sets__.add('bl_overlap_larger_face_percentages')
     data.bl_overlap_smaller_face_percentages = torch.tensor(baseline_matching.smaller_face_overlap_percentages)
+    data.__node_sets__.add('bl_overlap_smaller_face_percentages')
     data.bl_overlap_larger_edge_percentages = torch.tensor(baseline_matching.larger_edge_overlap_percentages)
+    data.__node_sets__.add('bl_overlap_larger_edge_percentages')
     data.bl_overlap_smaller_edge_percentages = torch.tensor(baseline_matching.smaller_edge_overlap_percentages)
+    data.__node_sets__.add('bl_overlap_smaller_edge_percentages')
 
     # Setup Onshape Baseline
     if bl_m_path is None or bl_o_path is None or bl_v_path is None or not has_baseline_data or skip_onshape_baseline:

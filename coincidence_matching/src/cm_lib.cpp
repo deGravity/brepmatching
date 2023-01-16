@@ -478,9 +478,14 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
                 err = PK_TOPOL_eval_mass_props(1, &p1_face, MASS_PROP_TOL, &mass_prop_opts, &face1_SA, &mass, c_of_g, m_of_i, &periphery);
                 assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
+                if (err != PK_ERROR_no_errors) {
+                    continue;
+                }
                 err = PK_TOPOL_eval_mass_props(1, &p2_face, MASS_PROP_TOL, &mass_prop_opts, &face2_SA, &mass, c_of_g, m_of_i, &periphery);
                 assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
-
+                if (err != PK_ERROR_no_errors) {
+                    continue;
+                }
 
                 PK_FACE_make_sheet_bodies_o_t make_sheet_opts;
                 PK_FACE_make_sheet_bodies_o_m(make_sheet_opts); // Do we need to force copies in here?
@@ -506,7 +511,7 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                 PK_BODY_boolean_o_t bool_opts;
                 PK_BODY_boolean_o_m(bool_opts);
 
-                bool_opts.function = PK_boolean_intersect_c;
+                bool_opts.function = PK_boolean_unite_c;
                 bool_opts.max_tol = BOOL_MAX_TOL;
 
                 PK_boolean_match_o_t match_opts;
@@ -519,11 +524,21 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
                 err = PK_BODY_boolean_2(sheet1, 1, &sheet2, &bool_opts, &bool_tracking, &bool_results);
                 assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
+                if (err != PK_ERROR_no_errors || bool_results.reports->report == PK_boolean_result_failed_c) {
+                    continue;
+                }
 
-                double intersection_SA;
 
-                err = PK_TOPOL_eval_mass_props(bool_results.n_bodies, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &intersection_SA, &mass, c_of_g, m_of_i, &periphery);
+                //double intersection_SA;
+                double union_SA;
+
+                err = PK_TOPOL_eval_mass_props(bool_results.n_bodies, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &union_SA, &mass, c_of_g, m_of_i, &periphery);
                 assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
+                if (err != PK_ERROR_no_errors) {
+                    continue;
+                }
+
+                double intersection_SA = face1_SA + face2_SA - union_SA;
 
                 double original_size = face1_SA < face2_SA ? face1_SA : face2_SA;
 
@@ -634,6 +649,9 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                     err = PK_BODY_boolean_2(wire_body_1, 1, &wire_body_2, &bool_opts, &bool_tracking, &bool_results);
                     assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
                     //assert(bool_results.n_bodies == 1);
+                    if (err != PK_ERROR_no_errors || bool_results.reports->report == PK_boolean_result_failed_c) {
+                        continue;
+                    }
 
                     PK_TOPOL_eval_mass_props_o_t mass_prop_opts;
                     PK_TOPOL_eval_mass_props_o_m(mass_prop_opts);
@@ -643,12 +661,20 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
                     err = PK_TOPOL_eval_mass_props(bool_results.n_bodies, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &union_length, &mass, c_of_g, m_of_i, &periphery);
                     assert(err == PK_ERROR_no_errors || err == PK_ERROR_mass_eq_0);
+                    if (err != PK_ERROR_no_errors && err != PK_ERROR_mass_eq_0) {
+                        continue;
+                    }
 
                     err = PK_TOPOL_eval_mass_props(1, &p1_edge, MASS_PROP_TOL, &mass_prop_opts, &wire_1_length, &mass, c_of_g, m_of_i, &periphery);
                     assert(err == PK_ERROR_no_errors || err == PK_ERROR_mass_eq_0); // PK_TOPOL_eval_mass_props
+                    if (err != PK_ERROR_no_errors && err != PK_ERROR_mass_eq_0) {
+                        continue;
+                    }
                     err = PK_TOPOL_eval_mass_props(1, &p2_edge, MASS_PROP_TOL, &mass_prop_opts, &wire_2_length, &mass, c_of_g, m_of_i, &periphery);
                     assert(err == PK_ERROR_no_errors || err == PK_ERROR_mass_eq_0); // PK_TOPOL_eval_mass_props
-
+                    if (err != PK_ERROR_no_errors && err != PK_ERROR_mass_eq_0) {
+                        continue;
+                    }
 
                     double intersection_length = wire_1_length + wire_2_length - union_length;
                     double original_length = wire_1_length < wire_2_length ? wire_1_length : wire_2_length; // original_length = min(wire_1_length, wire_2_length)
