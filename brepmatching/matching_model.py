@@ -62,18 +62,14 @@ class MatchingModel(pl.LightningModule):
         num_thresholds: int = 10,
         min_topos: int = 1,
 
-        loss: str = 'NPairs', #NPairs, TupletMargin
-        temperature: float = -1,
-        margin: float = 0.1,
-        loss_scale: float = 64,
-
         log_baselines: bool = False,
 
         threshold: float = 0.75,
         use_adjacency: bool = False,
         test_greedy: bool = True,
         test_iterative_vs_threshold: bool = True,
-        bce_loss_weight: float = 1.0
+        bce_loss_weight: float = 1.0,
+        init_strategy: str = "exact"                # "exact" or "overlap"
         ):
         super().__init__()
 
@@ -110,6 +106,9 @@ class MatchingModel(pl.LightningModule):
         self.test_greedy = test_greedy
         self.test_iterative_vs_threshold = test_iterative_vs_threshold
         self.use_adjacency = use_adjacency
+
+        assert(init_strategy in ["exact", "overlap"])
+        self.init_strategy = init_strategy
 
         self.batch_norm = batch_norm
 
@@ -199,6 +198,12 @@ class MatchingModel(pl.LightningModule):
                 matches = data[f"{kinds}_matches"][:, indices]
             elif strategy == "exact":
                 matches = data[f"bl_exact_{kinds}_matches"].clone()
+            elif strategy == "overlap":
+                matches = data[f"bl_exact_{kinds}_matches"].clone()
+                if k != "v":
+                    # no overlap for vertices
+                    matches = torch.cat([matches, data[f"bl_overlap_{kinds}_matches"].clone()], dim=-1)
+
             else:
                 raise NotImplementedError()
             setattr(data, f"cur_{kinds}_matches", matches)
@@ -220,7 +225,7 @@ class MatchingModel(pl.LightningModule):
             numel += scores[k][mask_k].numel()
         return loss / numel if numel != 0 else torch.tensor(0.0, device=self.device)
 
-    def do_iteration(self, data: HetData, threshold: float) -> tuple[torch.Tensor, HetData]:
+    def do_iteration(self, data: HetData, threshold: float, init_strategy: str) -> tuple[torch.Tensor, HetData]:
         """
         Do the iteration matching the highest scored candidate until the score is below the threshold
 
@@ -237,7 +242,7 @@ class MatchingModel(pl.LightningModule):
         gt_scores = self.init_gt_scores(data)
 
         # prepare current match (to coincident)
-        init_matches = self.init_cur_match(data, cur_masks, "exact")
+        init_matches = self.init_cur_match(data, cur_masks, init_strategy)
 
         if self.use_adjacency:
             data_l, data_r = unzip_hetdata(data)
@@ -337,13 +342,13 @@ class MatchingModel(pl.LightningModule):
         loss = self.compute_loss(scores, gt_scores, masks_bool)
         return loss, scores
 
-    def do_greedy_and_compute_metric(self, data: HetData) -> tuple[torch.Tensor, dict[str, np.ndarray]]:
+    def do_greedy_and_compute_metric(self, data: HetData, init_strategy: str) -> tuple[torch.Tensor, dict[str, np.ndarray]]:
         """
         `data` will be modified.
         """
-        unseen_loss, scores_mtx = self.do_once(data, "exact")
+        unseen_loss, scores_mtx = self.do_once(data, init_strategy)
         masks = self.init_masks(data)
-        init_matches = self.init_cur_match(data, masks, "exact")
+        init_matches = self.init_cur_match(data, masks, init_strategy)
         all_metrics = {}
         for kinds, _, k in TOPO_KINDS:
             matches, scores = greedy_match_2(scores_mtx[k], masks[k] != -1)
@@ -374,7 +379,7 @@ class MatchingModel(pl.LightningModule):
         self.log('val_loss', loss, batch_size=batch_size)
 
         # iterative
-        iter_loss, data_after = self.do_iteration(data.clone(), self.threshold)
+        iter_loss, data_after = self.do_iteration(data.clone(), self.threshold, self.init_strategy)
         self.log('val_iter_loss', iter_loss, batch_size=batch_size)
         for kinds, _, _ in TOPO_KINDS:
             self.log_metrics(data_after, kinds, "val_iter")
@@ -383,7 +388,7 @@ class MatchingModel(pl.LightningModule):
 
         # greedy
         if self.test_greedy:
-            unseen_loss, output["greedy"] = self.do_greedy_and_compute_metric(data.clone())
+            unseen_loss, output["greedy"] = self.do_greedy_and_compute_metric(data.clone(), self.init_strategy)
             self.log('val_greedy_loss', unseen_loss, batch_size=batch_size)
 
         return output
@@ -396,7 +401,7 @@ class MatchingModel(pl.LightningModule):
         self.log('test_loss', loss, batch_size=batch_size)
 
         # iterative
-        loss, data_after = self.do_iteration(data.clone(), self.threshold)
+        loss, data_after = self.do_iteration(data.clone(), self.threshold, self.init_strategy)
         self.log('test_iter_loss', loss, batch_size=batch_size)
         for kinds, _, _ in TOPO_KINDS:
             self.log_metrics(data_after, kinds, "test_iter")
@@ -405,14 +410,14 @@ class MatchingModel(pl.LightningModule):
 
         # greedy
         if self.test_greedy:
-            unseen_loss, output["greedy"] = self.do_greedy_and_compute_metric(data.clone())
+            unseen_loss, output["greedy"] = self.do_greedy_and_compute_metric(data.clone(), self.init_strategy)
             self.log('test_greedy_loss', unseen_loss, batch_size=batch_size)
 
         # iterative v threshold
         if self.test_iterative_vs_threshold:
             all_metrics: dict[str, Any] = { "f": [], "e": [], "v": [] }
             for threshold in self.thresholds:
-                iter_loss, data_after = self.do_iteration(data.clone(), threshold)
+                iter_loss, data_after = self.do_iteration(data.clone(), threshold, self.init_strategy)
                 for kinds, _, k in TOPO_KINDS:
                     metrics = compute_metrics_from_matches(data_after, kinds, data_after[f"cur_{kinds}_matches"])
                     all_metrics[k].append(metrics)
