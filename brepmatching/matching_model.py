@@ -25,7 +25,7 @@ from brepmatching.utils import (
 from brepmatching.loss import *
 from automate import HetData
 import pandas as pd
-from typing import Any
+from typing import Any, Optional
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -41,9 +41,23 @@ class WeightedBCELoss(torch.nn.Module):
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         return self.loss(x[y == 1], y[y == 1]) + self.weight * self.loss(x[y == 0], y[y == 0])
 
+class VotingNetwork(torch.nn.Module):
+    def __init__(self, 
+                 in_width: int = 128,
+                 out_width: int = 2):
+        super().__init__()
+        self.mlp = Linear(in_width, out_width)
+        self.temp = torch.nn.Parameter(torch.tensor(1.))
+    
+    def forward(self, x: torch.Tensor):
+        x = self.mlp(x)
+        return F.softmax(x / self.temp, dim=-1)
+
+
 class MatchingModel(pl.LightningModule):
 
     def __init__(self,
+        # model hyperparams
         f_in_width: int = 62,
         l_in_width: int = 38,
         e_in_width: int = 72,
@@ -57,28 +71,21 @@ class MatchingModel(pl.LightningModule):
 
         mp_exact_matches: bool = False,
         mp_overlap_matches: bool = False,
+        use_onshape: bool = False,
+        bce_loss_weight: float = 1.0,
 
-        num_negative: int = 5,
-        num_thresholds: int = 10,
-        min_topos: int = 1,
-
-        log_baselines: bool = False,
-
-        threshold: float = 0.75,
+        # inference time params
+        threshold: float = 0.75,                    # default threshold
         use_adjacency: bool = False,
+        init_strategy: str = "exact",               # "exact" or "overlap"
+
+        # what to execute
+        num_thresholds: int = 10,                   # number of thresholds for metrics v. thresh
         test_greedy: bool = True,
         test_iterative_vs_threshold: bool = True,
-        bce_loss_weight: float = 1.0,
-        init_strategy: str = "exact"                # "exact" or "overlap"
+        no_val_iter: bool = False,                  # to speed up training
         ):
         super().__init__()
-
-        self.num_negative = num_negative
-        self.num_thresholds = num_thresholds
-        self.thresholds = np.linspace(0.0, 1.0, num_thresholds + 1) if num_thresholds > 0 else np.array([0.5])
-        self.threshold = threshold
-        self.min_topos = min_topos
-        self.log_baselines = log_baselines
         
         self.pair_embedder = PairEmbedder(
             s_face=f_in_width,
@@ -95,6 +102,8 @@ class MatchingModel(pl.LightningModule):
             crv_emb_dim=crv_emb_dim,
             srf_emb_dim=srf_emb_dim)
 
+        self.batch_norm = batch_norm
+
         # TODO: expose variables
         self.mlp = Sequential(
             Linear(sbgcn_size * 2, sbgcn_size),
@@ -102,18 +111,32 @@ class MatchingModel(pl.LightningModule):
             Linear(sbgcn_size, 1)
         )
         self.loss = WeightedBCELoss(weight=bce_loss_weight) if bce_loss_weight != 1.0 else BCEWithLogitsLoss(reduction="sum")
-        self.test_greedy = test_greedy
-        self.test_iterative_vs_threshold = test_iterative_vs_threshold
-        self.use_adjacency = use_adjacency
 
+        self.use_onshape = use_onshape
+        if use_onshape:
+            self.voting_network = VotingNetwork(sbgcn_size * 2, 2)
+
+        # inference params
+        self.use_adjacency = use_adjacency
         assert(init_strategy in ["exact", "overlap"])
         self.init_strategy = init_strategy
+        self.threshold = threshold
 
-        self.batch_norm = batch_norm
+        # what to execute
+        self.num_thresholds = num_thresholds
+        self.thresholds = np.linspace(0.0, 1.0, num_thresholds + 1) if num_thresholds > 0 else np.array([0.5])
+        self.test_greedy = test_greedy
+        self.test_iterative_vs_threshold = test_iterative_vs_threshold
+        self.no_val_iter = no_val_iter
+
 
         self.save_hyperparameters()
     
-    def forward(self, data: HetData, masks_bool: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def forward(self,
+                data: HetData,
+                masks_bool: dict[str, torch.Tensor],
+                os_logits: Optional[dict[str, torch.Tensor]] = None   # onshape logits -100 or 100
+            ) -> dict[str, torch.Tensor]:
         """
         Returns a dict of ("f", "e", "v") to scores (nl, nr) tensor.
 
@@ -141,7 +164,19 @@ class MatchingModel(pl.LightningModule):
             pw_emb = torch.cat((left_k[grid_l[mask_k]], right_k[grid_r[mask_k]]), dim=-1) # shape (nl, nr, 128)
 
             sc = torch.zeros(mask_k.shape, device=self.device) # shape (nl, nr)
-            sc[mask_k] = self.mlp(pw_emb).squeeze(-1)
+
+            our_logits = self.mlp(pw_emb).squeeze(-1)
+
+            if self.use_onshape:
+                assert(os_logits is not None)
+                votes = self.voting_network(pw_emb).squeeze(-1)
+                os_logits_ = os_logits[k][mask_k]
+
+                combined_logits = (torch.stack([our_logits, os_logits_], dim=-1) * votes).sum(dim=-1)
+            else:
+                combined_logits = our_logits
+
+            sc[mask_k] = combined_logits
             scores[k] = sc
         return scores
 
@@ -177,6 +212,21 @@ class MatchingModel(pl.LightningModule):
             score[data[f"{kinds}_matches"][0], data[f"{kinds}_matches"][1]] = 1.0
             gt_scores[k] = score
         return gt_scores
+    
+    def get_os_logits(self, data: HetData) -> Optional[dict[str, torch.Tensor]]:
+        """
+        Returns the logits of onshape match -100 or 100.
+        `data` will NOT be modified.
+        """
+        if not self.use_onshape:
+            return None
+        os_logits = {}
+        for kinds, _, k in TOPO_KINDS:
+            logits = torch.full((data[f"left_{kinds}"].shape[0], data[f"right_{kinds}"].shape[0]), -100., device=self.device)
+            logits[data[f"os_bl_{kinds}_matches"][0], data[f"os_bl_{kinds}_matches"][1]] = 100.
+            os_logits[k] = logits
+        return os_logits
+
 
     def init_cur_match(self,
                        data: HetData,
@@ -239,6 +289,7 @@ class MatchingModel(pl.LightningModule):
 
         # setup ground truth scores
         gt_scores = self.init_gt_scores(data)
+        os_logits = self.get_os_logits(data)
 
         # prepare current match (to coincident)
         init_matches = self.init_cur_match(data, cur_masks, init_strategy)
@@ -280,7 +331,7 @@ class MatchingModel(pl.LightningModule):
                     cur_masks_bool[k].logical_and_(adj_mask)
 
             # score candidates
-            scores_logits = self(data, cur_masks_bool)
+            scores_logits = self(data, cur_masks_bool, os_logits)
             scores = {k: torch.sigmoid(scores_logits[k]) for k in scores_logits}
 
             # compute loss
@@ -333,12 +384,13 @@ class MatchingModel(pl.LightningModule):
         """
         masks = self.init_masks(data)
         gt_scores = self.init_gt_scores(data)
+        os_logits = self.get_os_logits(data)
 
         # prepare current match
         self.init_cur_match(data, masks, init_strategy)
         
         masks_bool = {k: (masks[k] != -1) for _, _, k in TOPO_KINDS}
-        scores_logits = self(data, masks_bool)
+        scores_logits = self(data, masks_bool, os_logits)
         scores = {k: torch.sigmoid(scores_logits[k]) for k in scores_logits}
         loss = self.compute_loss(scores_logits, gt_scores, masks_bool)
         return loss, scores
@@ -380,10 +432,11 @@ class MatchingModel(pl.LightningModule):
         self.log('val_loss', loss, batch_size=batch_size)
 
         # iterative
-        iter_loss, data_after = self.do_iteration(data.clone(), self.threshold, self.init_strategy)
-        self.log('val_iter_loss', iter_loss, batch_size=batch_size)
-        for kinds, _, _ in TOPO_KINDS:
-            self.log_metrics(data_after, kinds, "val_iter")
+        if not self.no_val_iter:
+            iter_loss, data_after = self.do_iteration(data.clone(), self.threshold, self.init_strategy)
+            self.log('val_iter_loss', iter_loss, batch_size=batch_size)
+            for kinds, _, _ in TOPO_KINDS:
+                self.log_metrics(data_after, kinds, "val_iter")
 
         output = {}
 
