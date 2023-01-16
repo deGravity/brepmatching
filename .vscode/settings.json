@@ -2,5 +2,6 @@
     "cmake.sourceDirectory": "${workspaceFolder}/.",
     "files.associations": {
         "tuple": "cpp"
-    }
+    },
+    "cmake.configureOnOpen": true
 }

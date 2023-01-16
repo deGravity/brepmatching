@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from automate import HetData
 from torch import is_tensor
 from matplotlib.figure import Figure
@@ -5,6 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from typing import Optional
+from pathlib import Path
+import os
 
 TOPO_KINDS: list[tuple[str, str, str]] = [
   ("faces", "face", "f"),
@@ -12,6 +15,7 @@ TOPO_KINDS: list[tuple[str, str, str]] = [
   ("edges", "edge", "e"),
   ("vertices", "vertex", "v")
 ]
+
 
 def zip_hetdata(left, right):
     common_keys = set(left.keys).intersection(right.keys)
@@ -501,6 +505,56 @@ class Running_avg:
         self.state[:] = 0
         self.count = 0.0
         return val
+
+
+def make_containing_dir(filepath):
+    """Ensure that the directory part of filepath exists."""
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+
+@contextmanager
+def safe_open(path, mode):
+    """Open a file and create parent directories if necessary."""
+    make_containing_dir(path)
+    file = open(path, mode)
+    try:
+        yield file
+    finally:
+        file.close()
+
+def gdrive_wget(FILEID, FILENAME):
+    """Create a wget command to download a Google Drive file from a terminal."""
+    return f"wget --load-cookies /tmp/cookies.txt \"https://docs.google.com/uc?export=download&confirm=" + \
+        "$(wget --quiet --save-cookies /tmp/cookies.txt --keep-session-cookies --no-check-certificate" + \
+        " 'https://docs.google.com/uc?export=download&id={FILEID}' -O- | sed -rn 's/.*confirm=([0-9A-" + \
+        "Za-z_]+).*/\1\n/p')&id={FILEID}\" -O {FILENAME} && rm -rf /tmp/cookies.txt"
+
+def url_to_wget(url, dest):
+    """Create a wget command from a Google Drive link."""
+    url = url.split('/d/')[-1]
+    return gdrive_wget(url, dest)
+
+"""Optional Onshape API helpers"""
+try:
+    from apikey.onshape import Onshape
+    from collections import namedtuple
+    
+    Element = namedtuple('Element', ['did', 'wid', 'mv', 'eid'])
+
+    api = Onshape(stack='https://cad.onshape.com', creds=str(Path.home().joinpath('.config','onshapecreds.json')), logging=False)
+    def dowload_part(did, mv, eid):
+        response = api.request(
+        method='get', 
+        path=f'/api/partstudios/d/{did}/m/{mv}/e/{eid}/parasolid', query={'includeExportIds':True})
+        return response.text
+    
+    def parts_from_url(url):
+        parts = url.split('/')
+        return Element(parts[-7], parts[-5], parts[-3], parts[-1])
+    def dowload_part_from_url(url):
+        el= parts_from_url(url)
+        return dowload_part(el.did, el.mv, el.eid)
+except ModuleNotFoundError as err:
+    pass # Dont create these helpers if apikey is not installed
 
 def logsumexp(x, keep_mask=None, add_one=True, dim=1):
     if keep_mask is not None:

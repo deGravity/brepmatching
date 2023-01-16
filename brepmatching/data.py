@@ -10,17 +10,23 @@ from automate import Part, PartFeatures, PartOptions, part_to_graph
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 
-from .utils import zip_hetdata
+from .utils import zip_hetdata, make_containing_dir
 import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
 
-from coincidence_matching import match_parts
+from coincidence_matching import match_parts, match_parts_dict, get_export_id_types
 from .transforms import *
 
 
-def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
+
+def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, bl_m_path, include_meshes=True, skip_onshape_baseline=False):
+    has_baseline_data = False
     if orig_path not in zf.namelist() or var_path not in zf.namelist() or match_path not in zf.namelist():
         return None
+    if bl_o_path is not None:
+        has_baseline_data = True
+        if bl_o_path not in zf.namelist() or bl_v_path not in zf.namelist() or bl_m_path not in zf.namelist():
+            has_baseline_data = False
     options = PartOptions()
     if not include_meshes:
         options.tesselate = False
@@ -46,7 +52,8 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
             return None
 
     export_id_hash = lambda x: xxhash.xxh32(x).intdigest()
-    hashed_matches = [(export_id_hash(match['val1']), export_id_hash(match['val2'])) for _,match in matches.items()]
+    match2tensor = lambda x: torch.tensor(x).long().T if len(x) > 0 else torch.empty((2,0)).long()
+    
 
     index_dict = lambda x: dict((v.item(),k) for k,v in enumerate(x))
     orig_face_map = index_dict(orig_brep.face_export_ids)
@@ -57,28 +64,20 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     var_edge_map = index_dict(var_brep.edge_export_ids)
     var_vert_map = index_dict(var_brep.vertex_export_ids)
 
-    # Setup Ground Truth Matches
-    face_matches = []
-    edge_matches = []
-    vert_matches = []
-    for orig_id, var_id in hashed_matches:
-        if orig_id in orig_face_map:
-            assert(var_id in var_face_map)
-            face_matches.append([orig_face_map[orig_id], var_face_map[var_id]])
-        elif orig_id in orig_edge_map:
-            assert(var_id in var_edge_map)
-            edge_matches.append([orig_edge_map[orig_id], var_edge_map[var_id]])
-        elif orig_id in orig_vert_map:
-            assert(var_id in var_vert_map)
-            vert_matches.append([orig_vert_map[orig_id], var_vert_map[var_id]])
-        else:
-            pass # The last match in our test wasn't in the dataset and was JFD, JFD -- special case?
-            #assert(False) # Error - missing export id
+    orig_id_types = get_export_id_types(orig_part_data)
 
-    match2tensor = lambda x: torch.tensor(x).long().T if len(x) > 0 else torch.empty((2,0)).long()
-    face_matches = match2tensor(face_matches)
-    edge_matches = match2tensor(edge_matches)
-    vert_matches = match2tensor(vert_matches)
+    # Setup Ground Truth Matches
+    face_matches, edge_matches, vert_matches = make_match_tensors(
+        matches, 
+        export_id_hash, 
+        match2tensor, 
+        orig_face_map, 
+        orig_edge_map, 
+        orig_vert_map, 
+        var_face_map, 
+        var_edge_map, 
+        var_vert_map,
+        orig_id_types)
 
     data = zip_hetdata(orig_brep, var_brep)
     data.faces_matches = face_matches
@@ -89,14 +88,18 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     data.__edge_sets__['vertices_matches'] = ['left_vertices', 'right_vertices']
 
     # Setup Baseline Matching
-    baseline_matching = match_parts(orig_part_data, var_part_data, True) # TODO - set exact to false once implemented
+    baseline_matching = match_parts(orig_part_data, var_part_data, False)
     bl_exact_face_matches = []
     bl_exact_edge_matches = []
     bl_exact_vert_matches = []
+    bl_overlap_face_matches = []
+    bl_overlap_edge_matches = []
     for matchings, orig_map, var_map, out_list in [
                 (baseline_matching.face_matches, orig_face_map, var_face_map, bl_exact_face_matches),
                 (baseline_matching.edge_matches, orig_edge_map, var_edge_map, bl_exact_edge_matches),
-                (baseline_matching.vertex_matches, orig_vert_map, var_vert_map, bl_exact_vert_matches)
+                (baseline_matching.vertex_matches, orig_vert_map, var_vert_map, bl_exact_vert_matches),
+                (baseline_matching.face_overlaps, orig_face_map, var_face_map, bl_overlap_face_matches),
+                (baseline_matching.edge_overlaps, orig_edge_map, var_edge_map, bl_overlap_edge_matches)
             ]:
         for o_t, v_t in matchings:
             o_t_h = export_id_hash(o_t)
@@ -108,6 +111,9 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     bl_exact_face_matches = match2tensor(bl_exact_face_matches)
     bl_exact_edge_matches = match2tensor(bl_exact_edge_matches)
     bl_exact_vert_matches = match2tensor(bl_exact_vert_matches)
+    bl_overlap_face_matches = match2tensor(bl_overlap_face_matches)
+    bl_overlap_edge_matches = match2tensor(bl_overlap_edge_matches)
+
 
     data.bl_exact_faces_matches = bl_exact_face_matches
     data.__edge_sets__['bl_exact_faces_matches'] = ['left_faces', 'right_faces']
@@ -115,54 +121,103 @@ def make_match_data(zf, orig_path, var_path, match_path, include_meshes=True):
     data.__edge_sets__['bl_exact_edges_matches'] = ['left_edges', 'right_edges']
     data.bl_exact_vertices_matches = bl_exact_vert_matches
     data.__edge_sets__['bl_exact_vertices_matches'] = ['left_vertices', 'right_vertices']
+    data.bl_overlap_faces_matches = bl_overlap_face_matches
+    data.__edge_sets__['bl_overlap_faces_matches'] = ['left_faces', 'right_faces']
+    data.bl_overlap_edges_matches = bl_overlap_edge_matches
+    data.__edge_sets__['bl_overlap_edges_matches'] = ['left_edges', 'right_edges']
+
+    data.bl_overlap_larger_face_percentages = torch.tensor(baseline_matching.larger_face_overlap_percentages)
+    data.bl_overlap_smaller_face_percentages = torch.tensor(baseline_matching.smaller_face_overlap_percentages)
+    data.bl_overlap_larger_edge_percentages = torch.tensor(baseline_matching.larger_edge_overlap_percentages)
+    data.bl_overlap_smaller_edge_percentages = torch.tensor(baseline_matching.smaller_edge_overlap_percentages)
+
+    # Setup Onshape Baseline
+    if bl_m_path is None or bl_o_path is None or bl_v_path is None or not has_baseline_data or skip_onshape_baseline:
+        
+        data.os_bl_faces_matches = torch.empty((2,0)).long()
+        data.__edge_sets__['os_bl_faces_matches'] = ['left_faces', 'right_faces']
+        data.os_bl_edges_matches = torch.empty((2,0)).long()
+        data.__edge_sets__['os_bl_edges_matches'] = ['left_edges', 'right_edges']
+        data.os_bl_vertices_matches = torch.empty((2,0)).long()
+        data.__edge_sets__['os_bl_vertices_matches'] = ['left_vertices', 'right_vertices']
+        data.n_onshape_baseline_unmatched = torch.tensor([0]).long()
+        data.has_onshape_baseline = torch.tensor([False]).bool()
+
+        return data # Stop now if we don't have baselines in the dataset
+
+    with zf.open(bl_m_path,'r') as f:
+        bl_matches = json.load(f)
+    with zf.open(bl_v_path, 'r') as f:
+        bl_var_part_data = f.read().decode('utf-8')
+    # The Onshape baseline variation may have different export ids than
+    # the original variation file (since it does not have the construction
+    # history to base the ids on). Re-map these back to the original variation
+    # that the ground-truth matching is based on by running exact matching
+    # (the two parts should match perfectly).
+    var_rename = match_parts_dict(bl_var_part_data, var_part_data, True)
+    var_types = get_export_id_types(bl_var_part_data)
+    orig_var_types = get_export_id_types(var_part_data)
+    num_onshape_baseline_unmatched = 0
+    renamed_matches = {}
+    for k,match in bl_matches.items():
+        orig_export_id = match['val1']
+        bl_var_export_id = match['val2']
+        if bl_var_export_id in var_rename:
+            new_export_id = var_rename[bl_var_export_id]
+            assert(new_export_id in orig_var_types) # We've renamed the topo to something actually in the part
+            assert(var_types[bl_var_export_id] == orig_id_types[orig_export_id]) # Make sure the types match up
+            renamed_matches[k] = {'val1':orig_export_id, 'val2':new_export_id}
+        elif var_types[bl_var_export_id] in ['PK_CLASS_face', 'PK_CLASS_edge', 'PK_CLASS_vertex']: # Should we have matched this but didn't?
+            num_onshape_baseline_unmatched += 1
+    
+    os_bl_face_matches, os_bl_edge_matches, os_bl_vert_matches = make_match_tensors(
+        renamed_matches, 
+        export_id_hash, 
+        match2tensor, 
+        orig_face_map, 
+        orig_edge_map, 
+        orig_vert_map, 
+        var_face_map, 
+        var_edge_map, 
+        var_vert_map,
+        orig_id_types)
+    
+    data.os_bl_faces_matches = os_bl_face_matches
+    data.__edge_sets__['os_bl_faces_matches'] = ['left_faces', 'right_faces']
+    data.os_bl_edges_matches = os_bl_edge_matches
+    data.__edge_sets__['os_bl_edges_matches'] = ['left_edges', 'right_edges']
+    data.os_bl_vertices_matches = os_bl_vert_matches
+    data.__edge_sets__['os_bl_vertices_matches'] = ['left_vertices', 'right_vertices']
+    data.n_onshape_baseline_unmatched = torch.tensor([num_onshape_baseline_unmatched]).long()
+    data.has_onshape_baseline = torch.tensor([True]).bool()
 
     return data
 
-def combine_data(zip_paths: list[str], cache_path: str):
-    preprocessed_data = []
-    group = []
-    original_index = []
-    original_file = []
+def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, orig_edge_map, orig_vert_map, var_face_map, var_edge_map, var_vert_map, orig_classes):
+    face_matches = []
+    edge_matches = []
+    vert_matches = []
+    hashed_matches = [(export_id_hash(match['val1']), export_id_hash(match['val2'])) for _,match in matches.items()]
+    hashed_orig_classes = {export_id_hash(k):v for k,v in orig_classes.items()}
 
-    for i, zip_path in enumerate(zip_paths):
-        print(f"Processing {zip_path}")
-        with ZipFile(zip_path, 'r') as zf:
-            with zf.open('data/VariationData/all_variations.csv','r') as f:
-                variations = pd.read_csv(f)
-            if 'fail' in variations.columns:
-                variations = variations[variations.fail == 0]
-            for i in tqdm(range(len(variations)), "Preprocessing Data"):
-                variation_record = variations.iloc[i]
-                variation_index = variations.index[i]
+    for orig_id, var_id in hashed_matches:
+        if orig_id in orig_face_map:
+            assert(var_id in var_face_map)
+            face_matches.append([orig_face_map[orig_id], var_face_map[var_id]])
+        elif orig_id in orig_edge_map:
+            assert(var_id in var_edge_map)
+            edge_matches.append([orig_edge_map[orig_id], var_edge_map[var_id]])
+        elif orig_id in orig_vert_map:
+            assert(var_id in var_vert_map)
+            vert_matches.append([orig_vert_map[orig_id], var_vert_map[var_id]])
+        else:
+            if hashed_orig_classes[orig_id] in ['PK_CLASS_face', 'PK_CLASS_vertex','PK_CLASS_edge']:
+                assert(False)
 
-                m_path = 'data/Matches/' + variation_record.matchFile
-                o_path = 'data/BrepsWithReference/' + variation_record.ps_orig
-                v_path = 'data/BrepsWithReference/' + variation_record.ps_var
-
-                data = make_match_data(zf, o_path, v_path, m_path)
-                if data is not None:
-                    group.append(variation_record.ps_orig)
-                    preprocessed_data.append(data)
-                    original_index.append(variation_index)
-                    original_file.append(i)
-    # unique group
-    group_set = set(group)
-    group_dict = dict((k, v) for v, k in enumerate(group_set))
-    for i in range(len(group)):
-        group[i] = group_dict[group[i]]
-    group = torch.tensor(group, dtype=torch.long)
-
-    cached_data = {
-        'preprocessed_data': preprocessed_data,
-        'group': group,
-        'original_index': original_index,
-        'original_file': original_file
-    }
-    if cache_path is not None:
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        torch.save(cached_data, cache_path)
-    return cached_data
-
+    face_matches = match2tensor(face_matches)
+    edge_matches = match2tensor(edge_matches)
+    vert_matches = match2tensor(vert_matches)
+    return face_matches,edge_matches,vert_matches
 
 
 def load_data(zip_path=None, cache_path=None):
@@ -175,6 +230,9 @@ def load_data(zip_path=None, cache_path=None):
     with ZipFile(zip_path, 'r') as zf:
         with zf.open('data/VariationData/all_variations.csv','r') as f:
             variations = pd.read_csv(f)
+        if 'data/baseline/allVariationsWithBaseline.csv' in zf.namelist():
+            with zf.open('data/baseline/allVariationsWithBaseline.csv','r') as f:
+                variations = pd.read_csv(f)
         if 'fail' in variations.columns:
             variations = variations[variations.fail == 0]
         orig_id_dict = dict((k,v) for v,k in enumerate(variations.ps_orig.unique()))
@@ -188,7 +246,20 @@ def load_data(zip_path=None, cache_path=None):
             o_path = 'data/BrepsWithReference/' + variation_record.ps_orig
             v_path = 'data/BrepsWithReference/' + variation_record.ps_var
 
-            data = make_match_data(zf, o_path, v_path, m_path)
+            bl_m_path = None
+            bl_o_path = None
+            bl_v_path = None
+
+            skip_onshape_baseline = True
+
+            if 'baselineMatch' in variations.columns:
+                bl_m_path = 'data/baseline/' + variation_record.baselineMatch
+                bl_o_path = 'data/baseline/' + variation_record.baselineOrig
+                bl_v_path = 'data/baseline/' + variation_record.baselineNew
+
+                skip_onshape_baseline = variation_record.translationFail == 1
+
+            data = make_match_data(zf, o_path, v_path, m_path, bl_o_path, bl_v_path, bl_m_path, skip_onshape_baseline=skip_onshape_baseline)
             if data is not None:
                 group.append(orig_id_dict[variation_record.ps_orig])
                 preprocessed_data.append(data)
@@ -207,14 +278,14 @@ def load_data(zip_path=None, cache_path=None):
 
 follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'faces_matches', 'edges_matches', 'vertices_matches']
 class BRepMatchingDataset(torch.utils.data.Dataset):
-    def __init__(self, cached_data, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None):
+    def __init__(self, cached_data, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None, require_onshape_matchings=False):
         self.debug = debug
         self.transforms = compose(*transforms[::-1]) if transforms else None
 
         self.preprocessed_data = cached_data['preprocessed_data']
         self.group = cached_data['group']
         self.original_index = cached_data['original_index']
-        
+
         self.mode = mode
         unique_groups = self.group.unique()
         n_test = int(len(unique_groups)*test_size) if test_size < 1 else test_size
@@ -235,6 +306,13 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
         self.test_identity = test_identity
 
         self.original_index = [self.original_index[i] for i,g in enumerate(self.group) if g.item() in groups_to_use]
+
+        self.require_onshape_matchings = require_onshape_matchings
+        if require_onshape_matchings:
+            data_with_onshape_matchings = [i for i,d in enumerate(self.preprocessed_data) if d.has_onshape_baseline]
+            self.preprocessed_data = [self.preprocessed_data[i] for i in data_with_onshape_matchings]
+            self.original_index = [self.original_index[i] for i in data_with_onshape_matchings]
+
         
     def __getitem__(self, idx):
         data = self.preprocessed_data[idx]

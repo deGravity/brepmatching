@@ -88,13 +88,17 @@ class PairEmbedder(torch.nn.Module):
                 if is_set:
                     face_matches = torch.cat([face_matches, batch[fmt % "faces"]], dim=1)
                     edge_matches = torch.cat([edge_matches, batch[fmt % "edges"]], dim=1)
-                    vert_matches = torch.cat([vert_matches, batch[fmt % "vertices"]], dim=1)
+                    
 
                     face_match_types = torch.cat([face_match_types, torch.full((batch[fmt % "faces"].shape[1],), n_types, device=device)])
                     edge_match_types = torch.cat([edge_match_types, torch.full((batch[fmt % "edges"].shape[1],), n_types + 1, device=device)])
-                    vert_match_types = torch.cat([vert_match_types, torch.full((batch[fmt % "vertices"].shape[1],), n_types + 2, device=device)])
                     
-                    n_types += 3
+                    n_types += 2
+
+                    if fmt % "vertices" in batch.keys: # There are no vertex overlaps
+                        vert_matches = torch.cat([vert_matches, batch[fmt % "vertices"]], dim=1)
+                        vert_match_types = torch.cat([vert_match_types, torch.full((batch[fmt % "vertices"].shape[1],), n_types + 2, device=device)])
+                        n_types += 1
             
             # Put Everything into one big graph
             

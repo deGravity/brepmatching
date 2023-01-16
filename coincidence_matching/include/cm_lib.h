@@ -5,16 +5,24 @@
 #include <string>
 #include <tuple>
 #include <sstream>
+#include <map>
 
 struct Matching {
     std::vector<std::tuple<std::string, std::string>> face_matches;
     std::vector<std::tuple<std::string, std::string>> edge_matches;
     std::vector<std::tuple<std::string, std::string>> vertex_matches;
 
+    std::vector<std::tuple<std::string, std::string>> face_overlaps;
+    std::vector<double> larger_face_overlap_percentages;
+    std::vector<double> smaller_face_overlap_percentages;
+    std::vector<std::tuple<std::string, std::string>> edge_overlaps;
+    std::vector<double> larger_edge_overlap_percentages;
+    std::vector<double> smaller_edge_overlap_percentages;
+
     std::string json() const {
         std::stringstream ss;
         ss << "{\n";
-        for (auto matches : { face_matches, edge_matches, vertex_matches }) {
+        for (auto matches : { face_matches, face_overlaps, edge_matches, edge_overlaps, vertex_matches}) {
             for (auto match : matches) {
                 ss << "\t\"" << std::get<0>(match) << "\":\"" << std::get<1>(match) << "\",\n";
             }
@@ -26,5 +34,7 @@ struct Matching {
 };
 
 Matching make_matching(std::string part1, std::string part2, bool exact=false);
+
+std::map<std::string, std::string> get_export_id_types(std::string part);
 
 #endif
