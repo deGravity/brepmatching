@@ -243,15 +243,19 @@ class ParallelPreprocessor(torch.utils.data.Dataset):
 
     @classmethod
     def preprocess(cls, zip_path, cache_path, num_workers=8, use_file_system=False):
-        
+        warnings.filterwarnings('ignore', category=UserWarning) # hide annoying warnings
         if use_file_system:
             torch.multiprocessing.set_sharing_strategy('file_system')
         
         processor = ParallelPreprocessor(zip_path, cache_path)
-        
-        
 
-        loader = torch.utils.data.DataLoader(processor, batch_size=1, num_workers=num_workers, shuffle=False, collate_fn = identity_collate)
+        loader = torch.utils.data.DataLoader(
+            processor, 
+            batch_size=1, 
+            num_workers=num_workers, 
+            shuffle=False, 
+            collate_fn = identity_collate
+            )
         
         dataset = []
         for d in tqdm(loader): # Turn of multiprocessing for now since it was crashing
