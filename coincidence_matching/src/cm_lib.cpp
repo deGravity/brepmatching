@@ -397,8 +397,14 @@ bool points_coincident(double* p1, double* p2) {
 }
 
 Matching make_matching(std::string part1, std::string part2, bool exact) {
+    ensure_parasolid_session();
 
     PK_ERROR_t err = PK_ERROR_no_errors;
+
+    PK_SESSION_smp_o_t smp_settings;
+    PK_SESSION_smp_o_m(smp_settings);
+    err = PK_SESSION_set_smp(&smp_settings);
+    assert(err == PK_ERROR_no_errors); // PK_SESSION_set_smp
 
     auto bodies1 = read_xt(part1);
     auto bodies2 = read_xt(part2);
@@ -524,7 +530,7 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
                 err = PK_BODY_boolean_2(sheet1, 1, &sheet2, &bool_opts, &bool_tracking, &bool_results);
                 assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
-                if (err != PK_ERROR_no_errors || bool_results.reports->report == PK_boolean_result_failed_c) {
+                if (err != PK_ERROR_no_errors || bool_results.result == PK_boolean_result_failed_c) {
                     continue;
                 }
 
@@ -649,7 +655,7 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                     err = PK_BODY_boolean_2(wire_body_1, 1, &wire_body_2, &bool_opts, &bool_tracking, &bool_results);
                     assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
                     //assert(bool_results.n_bodies == 1);
-                    if (err != PK_ERROR_no_errors || bool_results.reports->report == PK_boolean_result_failed_c) {
+                    if (err != PK_ERROR_no_errors || bool_results.result == PK_boolean_result_failed_c) {
                         continue;
                     }
 
