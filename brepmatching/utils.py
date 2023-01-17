@@ -68,8 +68,7 @@ def zip_apply_2(network1, network2, zipped_data):
 
 
 def count_batches(data: HetData) -> int:
-    #Todo: is there a better way to count batches?
-    return int(max(data.left_faces_batch[-1].item(), data.right_faces_batch[-1].item())) + 1
+    return data.num_graphs
 
 ###### MATCHING ######
 
@@ -148,12 +147,13 @@ def greedy_match_2(scores: torch.Tensor, mask: Optional[torch.Tensor] = None) ->
         mask[l, :] = False
         mask[:, r] = False
 
-    return torch.tensor(all_matches, dtype=torch.long, device=scores.device).T, \
+    return torch.tensor(all_matches, dtype=torch.long, device=scores.device).reshape((-1, 2)).T, \
         torch.tensor(all_scores, device=scores.device)
 
 def separate_batched_adj_mtx(mtx: torch.Tensor,
                              left_topo_batches: torch.Tensor,
-                             right_topo_batches: torch.Tensor) -> list[torch.Tensor]:
+                             right_topo_batches: torch.Tensor,
+                             num_batches: int) -> list[torch.Tensor]:
     """
     Given a batched adjacency matrix, return a list of unbatched adjacency matrices.
 
@@ -161,7 +161,6 @@ def separate_batched_adj_mtx(mtx: torch.Tensor,
     The returned tensors are views of the original.
     """
 
-    num_batches = int(max(left_topo_batches[-1].item(), right_topo_batches[-1].item())) + 1
     mtx_list = []
     l_offset = 0
     r_offset = 0
@@ -176,13 +175,13 @@ def separate_batched_adj_mtx(mtx: torch.Tensor,
 
 def separate_batched_matches(matches: torch.Tensor,
                              left_topo_batches: torch.Tensor,
-                             right_topo_batches: torch.Tensor) -> list[torch.Tensor]:
+                             right_topo_batches: torch.Tensor,
+                             num_batches: int) -> list[torch.Tensor]:
     """
     given a 2xn tensor of matches, and the batches tensor of the left and right nodes into which the matches index,
     return a list of b matches, with local indices within each instance
     """
     match_list = []
-    num_batches = int(max(left_topo_batches[-1].item(), right_topo_batches[-1].item())) + 1
     match_batches = left_topo_batches[matches[0]]
     left_batch_counts = [(left_topo_batches == b).sum() for b in range(num_batches)]
     right_batch_counts = [(right_topo_batches == b).sum() for b in range(num_batches)]
@@ -395,14 +394,13 @@ def compute_metrics_from_matches(data: HetData, kinds: str, matches: torch.Tenso
     batch_left = data[f"left_{kinds}_batch"]
     batch_right = data[f"right_{kinds}_batch"]
 
-    cur_matches_unbatched = separate_batched_matches(matches, batch_left, batch_right)
-    gt_matches_unbatched = separate_batched_matches(gt_matches, batch_left, batch_right)
-
-    n_batches = len(cur_matches_unbatched)
+    num_batches = count_batches(data)
+    cur_matches_unbatched = separate_batched_matches(matches, batch_left, batch_right, num_batches)
+    gt_matches_unbatched = separate_batched_matches(gt_matches, batch_left, batch_right, num_batches)
 
     metrics = np.zeros(NUM_METRICS)
 
-    for b in range(n_batches):
+    for b in range(num_batches):
         n_topos_left = int((batch_left == b).sum().item())
         n_topos_right = int((batch_right == b).sum().item())
 
@@ -414,7 +412,7 @@ def compute_metrics_from_matches(data: HetData, kinds: str, matches: torch.Tenso
         
         metrics += cur_metrics
     
-    metrics /= n_batches
+    metrics /= num_batches
 
     return metrics
 
