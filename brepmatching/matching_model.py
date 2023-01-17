@@ -186,7 +186,7 @@ class MatchingModel(pl.LightningModule):
 
         `data` will NOT be modified.
         """
-        num_batches = max(data.left_faces_batch[-1], data.right_faces_batch[-1]) + 1
+        num_batches = data.num_graphs
         masks = {}
         for kinds, _, k in TOPO_KINDS:
             x = torch.full((data[f"left_{kinds}"].shape[0], data[f"right_{kinds}"].shape[0]), -1,
