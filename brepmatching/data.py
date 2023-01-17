@@ -235,7 +235,10 @@ def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, ori
     edge_matches = match2tensor(edge_matches)
     vert_matches = match2tensor(vert_matches)
     return face_matches,edge_matches,vert_matches
-        
+
+def identity_collate(data):
+    return data[0]
+
 class ParallelPreprocessor(torch.utils.data.Dataset):
 
     @classmethod
@@ -244,13 +247,12 @@ class ParallelPreprocessor(torch.utils.data.Dataset):
         
         processor = ParallelPreprocessor(zip_path, cache_path)
         
-        def identity_collate(data):
-            return data[0]
+        
 
-        #loader = torch.utils.data.DataLoader(processor, batch_size=1, num_workers=40, shuffle=False, collate_fn = identity_collate)
+        loader = torch.utils.data.DataLoader(processor, batch_size=1, num_workers=8, shuffle=False, collate_fn = identity_collate)
         
         dataset = []
-        for d in tqdm(dataset): # Turn of multiprocessing for now since it was crashing
+        for d in tqdm(loader): # Turn of multiprocessing for now since it was crashing
             dataset.append(d)
 
         torch.save(dataset, cache_path)
