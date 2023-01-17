@@ -401,10 +401,13 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
     PK_ERROR_t err = PK_ERROR_no_errors;
 
+    // Works on unix, but not on Windows, so comment out for now
+    /*
     PK_SESSION_smp_o_t smp_settings;
     PK_SESSION_smp_o_m(smp_settings);
     err = PK_SESSION_set_smp(&smp_settings);
     assert(err == PK_ERROR_no_errors); // PK_SESSION_set_smp
+    */
 
     auto bodies1 = read_xt(part1);
     auto bodies2 = read_xt(part2);
