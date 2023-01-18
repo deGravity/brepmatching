@@ -432,7 +432,7 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
 
         self.require_onshape_matchings = require_onshape_matchings
         if require_onshape_matchings:
-            data_with_onshape_matchings = [i for i,d in enumerate(self.preprocessed_data) if d.has_onshape_baseline]
+            data_with_onshape_matchings = [i for i,d in enumerate(self.preprocessed_data) if hasattr(d, 'has_onshape_baseline') and d.has_onshape_baseline]
             self.preprocessed_data = [self.preprocessed_data[i] for i in data_with_onshape_matchings]
             self.original_index = [self.original_index[i] for i in data_with_onshape_matchings]
 
