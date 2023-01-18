@@ -401,7 +401,7 @@ def load_data(zip_path=None, cache_path=None):
 
 follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'faces_matches', 'edges_matches', 'vertices_matches']
 class BRepMatchingDataset(torch.utils.data.Dataset):
-    def __init__(self, cached_data, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None, require_onshape_matchings=False):
+    def __init__(self, cached_data, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None, require_onshape_matchings=True):
         self.debug = debug
         self.transforms = compose(*transforms[::-1]) if transforms else None
 
@@ -486,7 +486,6 @@ class BRepMatchingDataModule(pl.LightningDataModule):
     test_identity: bool = False,
     exact_match_labels: bool = False,
     val_batch_size: int = None,
-    use_onshape: bool = False
     ):
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -502,7 +501,6 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         self.test_identity = test_identity
         self.exact_match_labels = exact_match_labels
         self.val_batch_size = batch_size if val_batch_size == None else val_batch_size
-        self.use_onshape = use_onshape
 
         self.prepare_data_per_node = False #workaround to seeming bug in lightning
 
@@ -512,13 +510,13 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         if self.exact_match_labels:
             transforms.append(use_bl_exact_match_labels)
         cached_data = load_data(zip_path=self.zip_path, cache_path=self.cache_path)
-        self.train_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='train', test_identity=self.test_identity, transforms=transforms, require_onshape_matchings=self.use_onshape)
+        self.train_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='train', test_identity=self.test_identity, transforms=transforms)
         if self.single_set:
             self.test_ds = self.train_ds
             self.val_ds = self.train_ds
         else:
-            self.test_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='test', test_identity=self.test_identity, transforms=transforms, require_onshape_matchings=self.use_onshape)
-            self.val_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='val', test_identity=self.test_identity, transforms=transforms, require_onshape_matchings=self.use_onshape)
+            self.test_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='test', test_identity=self.test_identity, transforms=transforms)
+            self.val_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='val', test_identity=self.test_identity, transforms=transforms)
 
     def train_dataloader(self):
         return DataLoader(self.train_ds, batch_size=self.batch_size, num_workers=self.num_workers,shuffle=self.shuffle, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
