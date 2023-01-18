@@ -546,14 +546,20 @@ def make_filter(cache, face_thresh = 600, edge_thresh = 600, vert_thresh = 2, ig
                 baseline_total = baseline_face + baseline_edge + baseline_vert
                 pct_lost = 0. if baseline_lost == 0 else baseline_lost / (baseline_total + baseline_lost)
 
-                left_faces = data.left_faces.copy()
-                right_faces = data.right_faces.copy()
+                left_faces = data.left_faces.clone()
+                right_faces = data.right_faces.clone()
 
-                left_edges = data.left_edges.copy()
-                right_edges = data.right_edges.copy()
+                left_edges = data.left_edges.clone()
+                right_edges = data.right_edges.clone()
 
 
                 if ignore500s: # columns 15-18 are the origin parameters. Sometimes these are exactly +/- 500, which is way out of distribution
+                    left_faces = torch.cat([left_faces[:,:15], left_faces[:,18:]],dim=1)
+                    left_edges = torch.cat([left_edges[:,:15], left_edges[:,18:]],dim=1)
+
+                    right_faces = torch.cat([right_faces[:,:15], right_faces[:,18:]],dim=1)
+                    right_edges = torch.cat([right_edges[:,:15], right_edges[:,18:]],dim=1)
+                    """
                     left_face_origin = left_faces[:,15:18]
                     right_face_origin = right_faces[:,15:18]
                     
@@ -572,6 +578,8 @@ def make_filter(cache, face_thresh = 600, edge_thresh = 600, vert_thresh = 2, ig
 
                     right_edge_origin[right_edge_origin.abs() == 500] = 0.0
                     right_edges[:,15:18] = right_edge_origin
+                    """
+
                     
 
                 face_max = max(
