@@ -16,12 +16,16 @@ from torch_geometric.loader import DataLoader
 
 from coincidence_matching import match_parts, match_parts_dict, get_export_id_types
 from .transforms import *
+import warnings
 
 
 
-def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, bl_m_path, include_meshes=True, skip_onshape_baseline=False):
+
+def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, bl_m_path, include_meshes=True, skip_onshape_baseline=False, return_reason = False):
     has_baseline_data = False
     if orig_path not in zf.namelist() or var_path not in zf.namelist() or match_path not in zf.namelist():
+        if return_reason:
+            return None, 'missing_path'
         return None
     if bl_o_path is not None:
         has_baseline_data = True
@@ -36,11 +40,15 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
         orig_part_data = f.read().decode('utf-8')
         orig_part = Part(orig_part_data, options)
     if not orig_part.is_valid:
+        if return_reason:
+            return None, 'orig_invalid'
         return None
     with zf.open(var_path, 'r') as f:
         var_part_data = f.read().decode('utf-8')
         var_part = Part(var_part_data, options)
     if not var_part.is_valid:
+        if return_reason:
+            return None, 'var_invalid'
         return None
     features = PartFeatures()
     if not include_meshes:
@@ -49,6 +57,8 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     var_brep = part_to_graph(var_part, features)
     for brep in (orig_brep, var_brep):
         if any([torch.any(torch.isnan(feat)) for feat in (brep.faces, brep.edges, brep.vertices)]):
+            if return_reason:
+                return None, 'has_nans'
             return None
 
     export_id_hash = lambda x: xxhash.xxh32(x).intdigest()
@@ -127,9 +137,13 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     data.__edge_sets__['bl_overlap_edges_matches'] = ['left_edges', 'right_edges']
 
     data.bl_overlap_larger_face_percentages = torch.tensor(baseline_matching.larger_face_overlap_percentages)
+    data.__node_sets__.add('bl_overlap_larger_face_percentages')
     data.bl_overlap_smaller_face_percentages = torch.tensor(baseline_matching.smaller_face_overlap_percentages)
+    data.__node_sets__.add('bl_overlap_smaller_face_percentages')
     data.bl_overlap_larger_edge_percentages = torch.tensor(baseline_matching.larger_edge_overlap_percentages)
+    data.__node_sets__.add('bl_overlap_larger_edge_percentages')
     data.bl_overlap_smaller_edge_percentages = torch.tensor(baseline_matching.smaller_edge_overlap_percentages)
+    data.__node_sets__.add('bl_overlap_smaller_edge_percentages')
 
     # Setup Onshape Baseline
     if bl_m_path is None or bl_o_path is None or bl_v_path is None or not has_baseline_data or skip_onshape_baseline:
@@ -142,7 +156,8 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
         data.__edge_sets__['os_bl_vertices_matches'] = ['left_vertices', 'right_vertices']
         data.n_onshape_baseline_unmatched = torch.tensor([0]).long()
         data.has_onshape_baseline = torch.tensor([False]).bool()
-
+        if return_reason:
+            return data, 'ok'
         return data # Stop now if we don't have baselines in the dataset
 
     with zf.open(bl_m_path,'r') as f:
@@ -191,6 +206,8 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
     data.n_onshape_baseline_unmatched = torch.tensor([num_onshape_baseline_unmatched]).long()
     data.has_onshape_baseline = torch.tensor([True]).bool()
 
+    if return_reason:
+        return data, 'ok'
     return data
 
 def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, orig_edge_map, orig_vert_map, var_face_map, var_edge_map, var_vert_map, orig_classes):
@@ -219,6 +236,111 @@ def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, ori
     vert_matches = match2tensor(vert_matches)
     return face_matches,edge_matches,vert_matches
 
+def identity_collate(data):
+    return data[0]
+
+class ParallelPreprocessor(torch.utils.data.Dataset):
+
+    @classmethod
+    def preprocess(cls, zip_path, cache_path, num_workers=8, use_file_system=False):
+        warnings.filterwarnings('ignore', category=UserWarning) # hide annoying warnings
+        if use_file_system:
+            torch.multiprocessing.set_sharing_strategy('file_system')
+        
+        processor = ParallelPreprocessor(zip_path, cache_path)
+
+        loader = torch.utils.data.DataLoader(
+            processor, 
+            batch_size=1, 
+            num_workers=num_workers, 
+            shuffle=False, 
+            collate_fn = identity_collate
+            )
+        
+        dataset = []
+        for d in tqdm(loader): # Turn of multiprocessing for now since it was crashing
+            dataset.append(d)
+
+        torch.save(dataset, cache_path)
+
+        return dataset
+
+
+    def __init__(self, zip_path, cache_path):
+        with ZipFile(zip_path, 'r') as zf:
+            with zf.open('data/VariationData/all_variations.csv','r') as f:
+                self.variations = pd.read_csv(f)
+            if 'data/baseline/allVariationsWithBaseline.csv' in zf.namelist():
+                with zf.open('data/baseline/allVariationsWithBaseline.csv','r') as f:
+                    self.variations = pd.read_csv(f)
+            
+        self.orig_id_dict = dict((k,v) for v,k in enumerate(self.variations.ps_orig.unique()))
+
+
+        self.n = len(self.variations)
+        self.zf = None
+        self.zip_path = zip_path
+        self.cache_path = cache_path
+
+    def get_zip(self):
+        if self.zf is None:
+            self.zf = ZipFile(self.zip_path, 'r')
+        return self.zf
+    
+    def __del__(self):
+        try:
+            if self.zf is not None:
+                self.zf.close()
+        finally:
+            self.zf = None
+
+    def __len__(self):
+        return self.n
+    
+    def __getitem__(self, idx):
+        return self.process(idx)
+
+    def process(self, idx):
+        variation_record = self.variations.iloc[idx]
+        variation_index = self.variations.index[idx]
+
+        if 'fail' in self.variations.columns and variation_record.fail == 1:
+            return {
+            'idx':idx,
+            'group': self.orig_id_dict[variation_record.ps_orig],
+            'data': None,
+            'original_index': variation_index,
+            'reason': 'fail'
+        }
+
+        m_path = 'data/Matches/' + variation_record.matchFile
+        o_path = 'data/BrepsWithReference/' + variation_record.ps_orig
+        v_path = 'data/BrepsWithReference/' + variation_record.ps_var
+
+        bl_m_path = None
+        bl_o_path = None
+        bl_v_path = None
+
+        skip_onshape_baseline = True
+
+        if 'baselineMatch' in self.variations.columns:
+            bl_m_path = 'data/baseline/' + variation_record.baselineMatch
+            bl_o_path = 'data/baseline/' + variation_record.baselineOrig
+            bl_v_path = 'data/baseline/' + variation_record.baselineNew
+
+            skip_onshape_baseline = variation_record.translationFail == 1
+
+        zf = self.get_zip()
+
+        data, reason = make_match_data(zf, o_path, v_path, m_path, bl_o_path, bl_v_path, bl_m_path, skip_onshape_baseline=skip_onshape_baseline, return_reason=True)
+
+        return {
+            'idx': idx,
+            'group': self.orig_id_dict[variation_record.ps_orig],
+            'data': data,
+            'original_index': variation_index,
+            'reason': reason
+        }
 
 def load_data(zip_path=None, cache_path=None):
     if cache_path is not None:
@@ -226,6 +348,7 @@ def load_data(zip_path=None, cache_path=None):
             return torch.load(cache_path)
 
     assert(zip_path is not None) # Must provide a zip path if cache does not exist
+    warnings.filterwarnings('ignore', category=UserWarning) # hide annoying warnings
     preprocessed_data = []
     with ZipFile(zip_path, 'r') as zf:
         with zf.open('data/VariationData/all_variations.csv','r') as f:
@@ -405,3 +528,93 @@ class BRepMatchingDataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.val_ds, batch_size=self.val_batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
+
+
+def make_filter(cache, face_thresh = 1000, edge_thresh = 1000, vert_thresh = 1000, ignore_origins = False):
+    filt = []
+    for d in cache:
+        keep = False
+        if d['reason'] == 'ok':
+            keep = True
+            data = d['data']
+            has_baseline = data.has_onshape_baseline[0].item()
+            if has_baseline:
+                baseline_lost = data.n_onshape_baseline_unmatched[0].item()
+
+                left_faces = data.left_faces.clone()
+                right_faces = data.right_faces.clone()
+
+                left_edges = data.left_edges.clone()
+                right_edges = data.right_edges.clone()
+
+
+                if ignore_origins: # columns 15-18 are the origin parameters. Sometimes these are exactly +/- 500, which is way out of distribution
+                    left_faces = torch.cat([left_faces[:,:15], left_faces[:,18:]],dim=1)
+                    left_edges = torch.cat([left_edges[:,:15], left_edges[:,18:]],dim=1)
+
+                    right_faces = torch.cat([right_faces[:,:15], right_faces[:,18:]],dim=1)
+                    right_edges = torch.cat([right_edges[:,:15], right_edges[:,18:]],dim=1)                    
+
+                face_max = max(
+                        left_faces.abs().max().item() if len(left_faces) > 0 else 0., 
+                        right_faces.abs().max().item() if len(right_faces) > 0 else 0.
+                    )
+
+                edge_max = max(
+                        left_edges.abs().max().item() if len(left_edges) > 0 else 0.,
+                        right_edges.abs().max().item()if len(right_edges) > 0 else 0.
+                    )
+                
+
+                vert_max = max(
+                        data.left_vertices.abs().max().item() if len(data.left_vertices) > 0 else 0., 
+                        data.right_vertices.abs().max().item() if len(data.right_vertices) > 0 else 0.
+                    )
+                
+                if baseline_lost > 0:
+                    keep = False
+                
+                if face_max > face_thresh:
+                    keep = False
+
+                if edge_max > edge_thresh:
+                    keep = False
+                
+                if vert_max > vert_thresh:
+                    keep = False
+
+            else:
+                keep = False
+        filt.append(keep)
+    filt = np.array(filt)
+    return filt
+
+def convert_cache(cache, face_thresh = 1000, edge_thresh = 1000, vert_thresh = 1000, ignore_origins = False):
+
+    preprocessed_data = []
+    original_index = []
+    group = []
+
+    filt = make_filter(cache, face_thresh, edge_thresh, vert_thresh, ignore_origins)
+    for f,d in zip(filt, cache):
+        if f:
+            original_index.append(d['original_index'])
+            group.append(d['group'])
+            preprocessed_data.append(d['data'])
+            pass
+
+    group = torch.tensor(group).long()
+    cached_data = {
+        'preprocessed_data':preprocessed_data,
+        'group':group,
+        'original_index':original_index
+    }
+
+    return cached_data
+
+
+def convert_cache_pt(in_path, out_path):
+    cache = torch.load(in_path)
+    converted = convert_cache(cache)
+    make_containing_dir(out_path)
+    torch.save(converted, out_path)

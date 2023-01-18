@@ -80,7 +80,15 @@ std::map<int, std::string> read_attributes(int body_id) {
                 delete buffer;
             }
         }
+
+        if (def.n_fields > 0) {
+            PK_MEMORY_free(def.field_types);
+        }
+
     }
+
+    PK_MEMORY_free(attdefs);
+
     return topo_to_id;
 }
 
@@ -384,6 +392,13 @@ BRepTopology read_topology(int body_id) {
             break;
         }
     }
+
+    PK_MEMORY_free(topols);
+    PK_MEMORY_free(classes);
+    PK_MEMORY_free(parents);
+    PK_MEMORY_free(children);
+    PK_MEMORY_free(senses);
+
     return topology;
 }
 
@@ -397,8 +412,17 @@ bool points_coincident(double* p1, double* p2) {
 }
 
 Matching make_matching(std::string part1, std::string part2, bool exact) {
+    ensure_parasolid_session();
 
     PK_ERROR_t err = PK_ERROR_no_errors;
+
+    // Works on unix, but not on Windows, so comment out for now
+    /*
+    PK_SESSION_smp_o_t smp_settings;
+    PK_SESSION_smp_o_m(smp_settings);
+    err = PK_SESSION_set_smp(&smp_settings);
+    assert(err == PK_ERROR_no_errors); // PK_SESSION_set_smp
+    */
 
     auto bodies1 = read_xt(part1);
     auto bodies2 = read_xt(part2);
@@ -478,9 +502,14 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
                 err = PK_TOPOL_eval_mass_props(1, &p1_face, MASS_PROP_TOL, &mass_prop_opts, &face1_SA, &mass, c_of_g, m_of_i, &periphery);
                 assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
+                if (err != PK_ERROR_no_errors) {
+                    continue;
+                }
                 err = PK_TOPOL_eval_mass_props(1, &p2_face, MASS_PROP_TOL, &mass_prop_opts, &face2_SA, &mass, c_of_g, m_of_i, &periphery);
                 assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
-
+                if (err != PK_ERROR_no_errors) {
+                    continue;
+                }
 
                 PK_FACE_make_sheet_bodies_o_t make_sheet_opts;
                 PK_FACE_make_sheet_bodies_o_m(make_sheet_opts); // Do we need to force copies in here?
@@ -501,12 +530,17 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                 PK_BODY_t sheet1 = bodies1[0];
                 PK_BODY_t sheet2 = bodies2[0];
 
+                PK_MEMORY_free(bodies1);
+                PK_MEMORY_free(bodies2);
+                PK_TOPOL_track_r_f(&tracking1);
+                PK_TOPOL_track_r_f(&tracking2);
+
 
                 // Intersect the Faces
                 PK_BODY_boolean_o_t bool_opts;
                 PK_BODY_boolean_o_m(bool_opts);
 
-                bool_opts.function = PK_boolean_intersect_c;
+                bool_opts.function = PK_boolean_unite_c;
                 bool_opts.max_tol = BOOL_MAX_TOL;
 
                 PK_boolean_match_o_t match_opts;
@@ -519,16 +553,30 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
 
                 err = PK_BODY_boolean_2(sheet1, 1, &sheet2, &bool_opts, &bool_tracking, &bool_results);
                 assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
+                if (err != PK_ERROR_no_errors || bool_results.result == PK_boolean_result_failed_c) {
+                    continue;
+                }
 
-                double intersection_SA;
 
-                err = PK_TOPOL_eval_mass_props(bool_results.n_bodies, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &intersection_SA, &mass, c_of_g, m_of_i, &periphery);
+                //double intersection_SA;
+                double union_SA;
+
+                err = PK_TOPOL_eval_mass_props(bool_results.n_bodies, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &union_SA, &mass, c_of_g, m_of_i, &periphery);
                 assert(err == PK_ERROR_no_errors); // PK_TOPOL_eval_mass_props
+                if (err != PK_ERROR_no_errors) {
+                    continue;
+                }
+
+                double intersection_SA = face1_SA + face2_SA - union_SA;
 
                 double original_size = face1_SA < face2_SA ? face1_SA : face2_SA;
 
                 PK_TOPOL_track_r_f(&bool_tracking);
                 PK_boolean_r_f(&bool_results);
+
+                PK_ENTITY_delete(1, &sheet2);
+                PK_ENTITY_delete(1, &sheet1);
+
 
                 if (intersection_SA >= .8 * original_size) {
                     auto p1_face_id_it = p1_topo_map.find(p1_face);
@@ -617,6 +665,8 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                     err = PK_EDGE_make_wire_body(1, &p2_edge, &wire_body_options, &wire_body_2, &tracking_2);
                     assert(err == PK_ERROR_no_errors); // PK_EDGE_make_wire_body
 
+                    PK_TOPOL_track_r_f(&tracking_1);
+                    PK_TOPOL_track_r_f(&tracking_2);
 
                     // Set up Boolean Options
                     PK_BODY_boolean_o_t bool_opts;
@@ -634,6 +684,9 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                     err = PK_BODY_boolean_2(wire_body_1, 1, &wire_body_2, &bool_opts, &bool_tracking, &bool_results);
                     assert(err == PK_ERROR_no_errors); // PK_BODY_boolean_2
                     //assert(bool_results.n_bodies == 1);
+                    if (err != PK_ERROR_no_errors || bool_results.result == PK_boolean_result_failed_c) {
+                        continue;
+                    }
 
                     PK_TOPOL_eval_mass_props_o_t mass_prop_opts;
                     PK_TOPOL_eval_mass_props_o_m(mass_prop_opts);
@@ -642,17 +695,27 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
                     double wire_1_length, wire_2_length, union_length, mass, c_of_g[3], m_of_i[9], periphery;
 
                     err = PK_TOPOL_eval_mass_props(bool_results.n_bodies, bool_results.bodies, MASS_PROP_TOL, &mass_prop_opts, &union_length, &mass, c_of_g, m_of_i, &periphery);
+                    // Need to free after using results, but before breaking out for mass properties error
+                    PK_boolean_r_f(&bool_results);
+                    PK_TOPOL_track_r_f(&bool_tracking);
                     assert(err == PK_ERROR_no_errors || err == PK_ERROR_mass_eq_0);
+                    if (err != PK_ERROR_no_errors && err != PK_ERROR_mass_eq_0) {
+                        continue;
+                    }
 
                     err = PK_TOPOL_eval_mass_props(1, &p1_edge, MASS_PROP_TOL, &mass_prop_opts, &wire_1_length, &mass, c_of_g, m_of_i, &periphery);
                     assert(err == PK_ERROR_no_errors || err == PK_ERROR_mass_eq_0); // PK_TOPOL_eval_mass_props
+                    if (err != PK_ERROR_no_errors && err != PK_ERROR_mass_eq_0) {
+                        continue;
+                    }
                     err = PK_TOPOL_eval_mass_props(1, &p2_edge, MASS_PROP_TOL, &mass_prop_opts, &wire_2_length, &mass, c_of_g, m_of_i, &periphery);
                     assert(err == PK_ERROR_no_errors || err == PK_ERROR_mass_eq_0); // PK_TOPOL_eval_mass_props
-
+                    if (err != PK_ERROR_no_errors && err != PK_ERROR_mass_eq_0) {
+                        continue;
+                    }
 
                     double intersection_length = wire_1_length + wire_2_length - union_length;
                     double original_length = wire_1_length < wire_2_length ? wire_1_length : wire_2_length; // original_length = min(wire_1_length, wire_2_length)
-
                    
                     if (intersection_length >= .8 * original_length) {
                         auto p1_edge_id_it = p1_topo_map.find(p1_edge);
@@ -710,6 +773,8 @@ Matching make_matching(std::string part1, std::string part2, bool exact) {
     m.smaller_face_overlap_percentages = smaller_face_overlap_percentages;
     m.smaller_edge_overlap_percentages = smaller_edge_overlap_percentages;
 
+    PK_ENTITY_delete(1, &bodies1[0]);
+    PK_ENTITY_delete(1, &bodies2[0]);
 
     return m;
 }
