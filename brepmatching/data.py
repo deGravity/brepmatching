@@ -530,7 +530,7 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         return DataLoader(self.val_ds, batch_size=self.val_batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
 
 
-def make_filter(cache, face_thresh = 600, edge_thresh = 600, vert_thresh = 2, ignore500s = True):
+def make_filter(cache, face_thresh = 1000, edge_thresh = 1000, vert_thresh = 1000, ignore_origins = False):
     filt = []
     for d in cache:
         keep = False
@@ -540,11 +540,6 @@ def make_filter(cache, face_thresh = 600, edge_thresh = 600, vert_thresh = 2, ig
             has_baseline = data.has_onshape_baseline[0].item()
             if has_baseline:
                 baseline_lost = data.n_onshape_baseline_unmatched[0].item()
-                baseline_face = data.os_bl_faces_matches.shape[1]
-                baseline_edge = data.os_bl_edges_matches.shape[1]
-                baseline_vert = data.os_bl_vertices_matches.shape[1]
-                baseline_total = baseline_face + baseline_edge + baseline_vert
-                pct_lost = 0. if baseline_lost == 0 else baseline_lost / (baseline_total + baseline_lost)
 
                 left_faces = data.left_faces.clone()
                 right_faces = data.right_faces.clone()
@@ -553,34 +548,12 @@ def make_filter(cache, face_thresh = 600, edge_thresh = 600, vert_thresh = 2, ig
                 right_edges = data.right_edges.clone()
 
 
-                if ignore500s: # columns 15-18 are the origin parameters. Sometimes these are exactly +/- 500, which is way out of distribution
+                if ignore_origins: # columns 15-18 are the origin parameters. Sometimes these are exactly +/- 500, which is way out of distribution
                     left_faces = torch.cat([left_faces[:,:15], left_faces[:,18:]],dim=1)
                     left_edges = torch.cat([left_edges[:,:15], left_edges[:,18:]],dim=1)
 
                     right_faces = torch.cat([right_faces[:,:15], right_faces[:,18:]],dim=1)
-                    right_edges = torch.cat([right_edges[:,:15], right_edges[:,18:]],dim=1)
-                    """
-                    left_face_origin = left_faces[:,15:18]
-                    right_face_origin = right_faces[:,15:18]
-                    
-                    left_face_origin[left_face_origin.abs() == 500] = 0.0
-                    left_faces[:,15:18] = left_face_origin
-
-                    right_face_origin[right_face_origin.abs() == 500] = 0.0
-                    right_faces[:,15:18] = right_face_origin
-
-
-                    left_edge_origin = left_edges[:,15:18]
-                    right_edge_origin = right_edges[:,15:18]
-                    
-                    left_edge_origin[left_edge_origin.abs() == 500] = 0.0
-                    left_edges[:,15:18] = left_edge_origin
-
-                    right_edge_origin[right_edge_origin.abs() == 500] = 0.0
-                    right_edges[:,15:18] = right_edge_origin
-                    """
-
-                    
+                    right_edges = torch.cat([right_edges[:,:15], right_edges[:,18:]],dim=1)                    
 
                 face_max = max(
                         left_faces.abs().max().item() if len(left_faces) > 0 else 0., 
@@ -616,43 +589,19 @@ def make_filter(cache, face_thresh = 600, edge_thresh = 600, vert_thresh = 2, ig
     filt = np.array(filt)
     return filt
 
-def convert_cache(cache, face_thresh = 600, edge_thresh = 600, vert_thresh = 2, ignore500s = True):
+def convert_cache(cache, face_thresh = 1000, edge_thresh = 1000, vert_thresh = 1000, ignore_origins = False):
 
     preprocessed_data = []
     original_index = []
     group = []
 
-    filt = make_filter(cache, face_thresh, edge_thresh, vert_thresh, ignore500s)
+    filt = make_filter(cache, face_thresh, edge_thresh, vert_thresh, ignore_origins)
     for f,d in zip(filt, cache):
         if f:
             original_index.append(d['original_index'])
             group.append(d['group'])
             preprocessed_data.append(d['data'])
             pass
-    
-    """
-    if squash_500: # columns 15-18 are the origin parameters. Sometimes these are exactly +/- 500, which is way out of distribution
-        for i,data in enumerate(preprocessed_data):
-
-            left_face_origin = data.left_faces[:,15:18]
-            right_face_origin = data.right_faces[:,15:18]
-            
-            left_face_origin[(left_face_origin.abs() - 500).abs() < .1] = 0.0
-            preprocessed_data[i].left_faces[:,15:18] = left_face_origin
-
-            right_face_origin[(right_face_origin.abs() - 500).abs() < .1] = 0.0
-            preprocessed_data[i].right_faces[:,15:18] = right_face_origin
-
-
-            left_edge_origin = data.left_edges[:,15:18]
-            right_edge_origin = data.right_edges[:,15:18]
-            
-            left_edge_origin[left_edge_origin.abs() == 500] = 0.0
-            preprocessed_data[i].left_edges[:,15:18] = left_edge_origin
-
-            right_edge_origin[right_edge_origin.abs() == 500] = 0.0
-            preprocessed_data[i].right_edges[:,15:18] = right_edge_origin
-    """
 
     group = torch.tensor(group).long()
     cached_data = {
@@ -662,3 +611,10 @@ def convert_cache(cache, face_thresh = 600, edge_thresh = 600, vert_thresh = 2, 
     }
 
     return cached_data
+
+
+def convert_cache_pt(in_path, out_path):
+    cache = torch.load(in_path)
+    converted = convert_cache(cache)
+    make_containing_dir(out_path)
+    torch.save(converted, out_path)
