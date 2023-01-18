@@ -528,3 +528,129 @@ class BRepMatchingDataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.val_ds, batch_size=self.val_batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
+
+
+def make_filter(cache, face_thresh = 600, edge_thresh = 600, vert_thresh = 2, ignore500s = True):
+    filt = []
+    for d in cache:
+        keep = False
+        if d['reason'] == 'ok':
+            keep = True
+            data = d['data']
+            has_baseline = data.has_onshape_baseline[0].item()
+            if has_baseline:
+                baseline_lost = data.n_onshape_baseline_unmatched[0].item()
+                baseline_face = data.os_bl_faces_matches.shape[1]
+                baseline_edge = data.os_bl_edges_matches.shape[1]
+                baseline_vert = data.os_bl_vertices_matches.shape[1]
+                baseline_total = baseline_face + baseline_edge + baseline_vert
+                pct_lost = 0. if baseline_lost == 0 else baseline_lost / (baseline_total + baseline_lost)
+
+                left_faces = data.left_faces.copy()
+                right_faces = data.right_faces.copy()
+
+                left_edges = data.left_edges.copy()
+                right_edges = data.right_edges.copy()
+
+
+                if ignore500s: # columns 15-18 are the origin parameters. Sometimes these are exactly +/- 500, which is way out of distribution
+                    left_face_origin = left_faces[:,15:18]
+                    right_face_origin = right_faces[:,15:18]
+                    
+                    left_face_origin[left_face_origin.abs() == 500] = 0.0
+                    left_faces[:,15:18] = left_face_origin
+
+                    right_face_origin[right_face_origin.abs() == 500] = 0.0
+                    right_faces[:,15:18] = right_face_origin
+
+
+                    left_edge_origin = left_edges[:,15:18]
+                    right_edge_origin = right_edges[:,15:18]
+                    
+                    left_edge_origin[left_edge_origin.abs() == 500] = 0.0
+                    left_edges[:,15:18] = left_edge_origin
+
+                    right_edge_origin[right_edge_origin.abs() == 500] = 0.0
+                    right_edges[:,15:18] = right_edge_origin
+                    
+
+                face_max = max(
+                        left_faces.abs().max().item() if len(left_faces) > 0 else 0., 
+                        right_faces.abs().max().item() if len(right_faces) > 0 else 0.
+                    )
+
+                edge_max = max(
+                        left_edges.abs().max().item() if len(left_edges) > 0 else 0.,
+                        right_edges.abs().max().item()if len(right_edges) > 0 else 0.
+                    )
+                
+
+                vert_max = max(
+                        data.left_vertices.abs().max().item() if len(data.left_vertices) > 0 else 0., 
+                        data.right_vertices.abs().max().item() if len(data.right_vertices) > 0 else 0.
+                    )
+                
+                if baseline_lost > 0:
+                    keep = False
+                
+                if face_max > face_thresh:
+                    keep = False
+
+                if edge_max > edge_thresh:
+                    keep = False
+                
+                if vert_max > vert_thresh:
+                    keep = False
+
+            else:
+                keep = False
+        filt.append(keep)
+    filt = np.array(filt)
+    return filt
+
+def convert_cache(cache, face_thresh = 600, edge_thresh = 600, vert_thresh = 2, ignore500s = True):
+
+    preprocessed_data = []
+    original_index = []
+    group = []
+
+    filt = make_filter(cache, face_thresh, edge_thresh, vert_thresh, ignore500s)
+    for f,d in zip(filt, cache):
+        if f:
+            original_index.append(d['original_index'])
+            group.append(d['group'])
+            preprocessed_data.append(d['data'])
+            pass
+    
+    """
+    if squash_500: # columns 15-18 are the origin parameters. Sometimes these are exactly +/- 500, which is way out of distribution
+        for i,data in enumerate(preprocessed_data):
+
+            left_face_origin = data.left_faces[:,15:18]
+            right_face_origin = data.right_faces[:,15:18]
+            
+            left_face_origin[(left_face_origin.abs() - 500).abs() < .1] = 0.0
+            preprocessed_data[i].left_faces[:,15:18] = left_face_origin
+
+            right_face_origin[(right_face_origin.abs() - 500).abs() < .1] = 0.0
+            preprocessed_data[i].right_faces[:,15:18] = right_face_origin
+
+
+            left_edge_origin = data.left_edges[:,15:18]
+            right_edge_origin = data.right_edges[:,15:18]
+            
+            left_edge_origin[left_edge_origin.abs() == 500] = 0.0
+            preprocessed_data[i].left_edges[:,15:18] = left_edge_origin
+
+            right_edge_origin[right_edge_origin.abs() == 500] = 0.0
+            preprocessed_data[i].right_edges[:,15:18] = right_edge_origin
+    """
+
+    group = torch.tensor(group).long()
+    cached_data = {
+        'preprocessed_data':preprocessed_data,
+        'group':group,
+        'original_index':original_index
+    }
+
+    return cached_data
