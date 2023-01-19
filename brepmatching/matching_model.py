@@ -582,7 +582,10 @@ class MatchingModel(pl.LightningModule):
                 for threshold, metrics in zip(self.thresholds, all_metrics[k]):
                     entries.append([threshold, *metrics, kinds])
             df = pd.DataFrame(entries, columns=["Threshold", *METRIC_COLS, "Kind"])
-            df.to_csv(f"{self.logger.log_dir}/{algo}.csv")
+            cur_algo = algo
+            if self.init_strategy == "overlap":
+                cur_algo += "_ovl"
+            df.to_csv(f"{self.logger.log_dir}/{cur_algo}.csv")
 
 
     def get_callbacks(self):
