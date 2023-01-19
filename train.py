@@ -49,7 +49,7 @@ if __name__ == '__main__':
 
     if args.resume_version is not None:
         last_ckpt = os.path.join(
-            logger.experiment.log_dir,
+            logger.log_dir,
             'checkpoints',
             'last.ckpt'
         )
