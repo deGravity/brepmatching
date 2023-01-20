@@ -85,6 +85,7 @@ class MatchingModel(pl.LightningModule):
         test_adjacency: bool = False,
         val_greedy: bool = False,
         val_iter: bool = False,
+        save_data: bool = False,
         ):
         super().__init__()
         
@@ -133,6 +134,7 @@ class MatchingModel(pl.LightningModule):
         self.test_adjacency = test_adjacency
         self.val_iter = val_iter
         self.val_greedy = val_greedy
+        self.save_data = save_data
 
 
         self.save_hyperparameters()
@@ -411,6 +413,17 @@ class MatchingModel(pl.LightningModule):
         loss = self.compute_loss(scores_logits, gt_scores, masks_bool)
         return loss, scores
 
+    def do_greedy(self, data: HetData, init_strategy: str, seed: Optional[int] = None) -> tuple[torch.Tensor, HetData]:
+        unseen_loss, scores_mtx = self.do_once(data, init_strategy, seed)
+        masks = self.init_masks(data)
+        init_matches = self.init_cur_match(data, masks, init_strategy, seed)
+        for kinds, _, k in TOPO_KINDS:
+            matches, scores = greedy_match_2(scores_mtx[k], masks[k] != -1)
+            all_matches = torch.cat((init_matches[k], matches[:, scores > self.threshold]), dim=1)
+            data[f"cur_{kinds}_matches"] = all_matches
+        return unseen_loss, data
+
+
     def do_greedy_and_compute_metric(self, data: HetData, init_strategy: str, seed: Optional[int]=None) -> tuple[torch.Tensor, dict[str, np.ndarray]]:
         """
         `data` will be modified.
@@ -471,20 +484,32 @@ class MatchingModel(pl.LightningModule):
         loss, scores = self.do_once(data.clone(), "random", seed=batch_idx)
         self.log('test_loss', loss, batch_size=batch_size)
 
-        # iterative
-        if not self.test_iterative_vs_threshold:
+        output = {}
+
+        if self.save_data:
+            # iterative
             loss, data_after = self.do_iteration(data.clone(), self.threshold, self.init_strategy, False)
             self.log('test_iter_loss', loss, batch_size=batch_size)
             for kinds, _, _ in TOPO_KINDS:
-                self.log_metrics(data_after, kinds, "test_iter")
+                self.log_metrics(data_after, kinds, "test_iter_single")
+                output["iter_data"] = data_after.cpu()
+
+            # iterative adjacency
             if self.test_adjacency:
                 loss, data_after = self.do_iteration(data.clone(), self.threshold, self.init_strategy, True)
                 self.log('test_iter_adj_loss', loss, batch_size=batch_size)
                 for kinds, _, _ in TOPO_KINDS:
-                    self.log_metrics(data_after, kinds, "test_iter_adj")
+                    self.log_metrics(data_after, kinds, "test_iter_adj_single")
+                output["iter_adj_data"] = data_after.cpu()
+            
+            # greedy
+            if self.test_greedy:
+                loss, data_after = self.do_greedy(data.clone(), self.init_strategy)
+                self.log('test_greedy_loss', loss, batch_size=batch_size)
+                for kinds, _, _ in TOPO_KINDS:
+                    self.log_metrics(data_after, kinds, "test_greedy_single")
+                output["greedy_data"] = data_after.cpu()
 
-
-        output = {}
 
         # greedy
         if self.test_greedy:
@@ -532,6 +557,12 @@ class MatchingModel(pl.LightningModule):
             self.log_metrics_v_thresh(outputs, "iter", "test_iter", save=True)
             if self.test_adjacency:
                 self.log_metrics_v_thresh(outputs, "iter_adj", "test_iter_adj", save=True)
+        if self.save_data:
+            self.compile_data_and_save(outputs, "iter_data")
+            if self.test_greedy:
+                self.compile_data_and_save(outputs, "greedy_data")
+            if self.test_adjacency:
+                self.compile_data_and_save(outputs, "iter_adj_data")
 
     
     def log_metrics(self, data: HetData, kinds: str, prefix: str):
@@ -593,6 +624,9 @@ class MatchingModel(pl.LightningModule):
                 cur_algo += "_ovl"
             df.to_csv(f"{self.logger.log_dir}/{cur_algo}.csv")
 
+    def compile_data_and_save(self, outputs, key):
+        all_outputs = [o[key] for o in outputs]
+        torch.save(all_outputs, f"{self.logger.log_dir}/{key}.pt")
 
     def get_callbacks(self):
         callbacks = [
