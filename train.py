@@ -5,6 +5,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from brepmatching.data import BRepMatchingDataModule
 from torch_geometric.loader import DataLoader
 import torch
+import parse
 import sys
 import os
 
@@ -27,6 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_path', type=str, default=None)
     parser.add_argument('--name', type=str, default='unnamed')
     parser.add_argument('--resume_version', type=int, default=None)
+    parser.add_argument('--best_checkpoint', type=str, default=None)
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--no_train', action='store_true')
     parser.add_argument('--no_test', action='store_true')
@@ -49,7 +51,7 @@ if __name__ == '__main__':
 
     if args.resume_version is not None:
         last_ckpt = os.path.join(
-            logger.experiment.log_dir,
+            logger.log_dir,
             'checkpoints',
             'last.ckpt'
         )
@@ -60,6 +62,21 @@ if __name__ == '__main__':
             exit()
         args.checkpoint_path = last_ckpt
         args.resume_from_checkpoint = last_ckpt
+    elif args.best_checkpoint is not None:
+        all_checkpoints = os.listdir(args.best_checkpoint)
+        fmt = "epoch={}-val_loss={}.ckpt"
+        candidates = []
+        for ckpt in all_checkpoints:
+            a = parse.parse(fmt, ckpt)
+            if a is not None:
+                epoch, val_loss = a
+                candidates.append((float(val_loss), ckpt))
+        if len(candidates) == 0:
+            print(f"No checkpoints in {args.best_checkpoint}")
+            exit()
+        args.checkpoint_path = os.path.join(args.best_checkpoint,
+                                            min(candidates)[1])
+        print(f"Using checkpoint: {args.checkpoint_path}")
     
     data = BRepMatchingDataModule.from_argparse_args(args)
 

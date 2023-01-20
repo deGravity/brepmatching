@@ -436,6 +436,9 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
             self.preprocessed_data = [self.preprocessed_data[i] for i in data_with_onshape_matchings]
             self.original_index = [self.original_index[i] for i in data_with_onshape_matchings]
 
+        blacklist = {3096, 3097, 3098, 6372, 6373, 6374}
+        self.preprocessed_data = [self.preprocessed_data[i] for i, o in enumerate(self.original_index) if o not in blacklist]
+        self.original_index = [o for o in self.original_index if o not in blacklist]
         
     def __getitem__(self, idx):
         data = self.preprocessed_data[idx]
