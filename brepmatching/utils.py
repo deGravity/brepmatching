@@ -8,6 +8,7 @@ import torch
 from typing import Optional
 from pathlib import Path
 import os
+import sys
 
 TOPO_KINDS: list[tuple[str, str, str]] = [
   ("faces", "face", "f"),
@@ -543,10 +544,17 @@ try:
     Element = namedtuple('Element', ['did', 'wid', 'mv', 'eid'])
 
     api = Onshape(stack='https://cad.onshape.com', creds=str(Path.home().joinpath('.config','onshapecreds.json')), logging=False)
-    def dowload_part(did, mv, eid):
-        response = api.request(
-        method='get', 
-        path=f'/api/partstudios/d/{did}/m/{mv}/e/{eid}/parasolid', query={'includeExportIds':True})
+    def dowload_part(did, mv, eid, pid=None):
+        if pid is not None:
+            response = api.request(
+                method='get', 
+                path=f'/api/partstudios/d/{did}/m/{mv}/e/{eid}/parasolid', 
+                query={'includeExportIds':True,
+                      'partIds':pid})
+        else:
+            response = api.request(
+                method='get', 
+                path=f'/api/partstudios/d/{did}/m/{mv}/e/{eid}/parasolid', query={'includeExportIds':True})
         return response.text
     
     def parts_from_url(url):
@@ -571,3 +579,12 @@ def logsumexp(x, keep_mask=None, add_one=True, dim=1):
     if keep_mask is not None:
         output = output.masked_fill(~torch.any(keep_mask, dim=dim, keepdim=True), 0)
     return output
+
+def fix_file_descriptors():
+    # When run in a tmux environment, the file_descriptor strategy can run out
+    # of file handles quickly unless you reset the file handle limit
+    if sys.platform == "linux" or sys.platform == "linux2":
+        import resource
+        from torch.multiprocessing import set_sharing_strategy
+        set_sharing_strategy("file_descriptor")
+        resource.setrlimit(resource.RLIMIT_NOFILE, (100_000, 100_000))
