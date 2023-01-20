@@ -401,7 +401,7 @@ def load_data(zip_path=None, cache_path=None):
 
 follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'faces_matches', 'edges_matches', 'vertices_matches']
 class BRepMatchingDataset(torch.utils.data.Dataset):
-    def __init__(self, cached_data, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None, require_onshape_matchings=True):
+    def __init__(self, cached_data, debug=False, mode='train', seed=42, val_size=0.1, test_size=0.1, val_identity=False, transforms=None, require_onshape_matchings=True):
         self.debug = debug
         self.transforms = compose(*transforms[::-1]) if transforms else None
 
@@ -411,22 +411,22 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
 
         self.mode = mode
         unique_groups = self.group.unique()
-        n_test = int(len(unique_groups)*test_size) if test_size < 1 else test_size
         n_val = int(len(unique_groups)*val_size) if val_size < 1 else val_size
-        if test_size > 0:
-            train_groups, test_groups = train_test_split(unique_groups, test_size=n_test, random_state=seed)
+        n_test = int(len(unique_groups)*test_size) if test_size < 1 else test_size
+        if val_size > 0:
+            train_groups, val_groups = train_test_split(unique_groups, test_size=n_val, random_state=seed)
         else:
             train_groups = unique_groups
-            test_groups = np.array([],dtype=int)
-        if val_size > 0:
-            train_groups, val_groups = train_test_split(train_groups, test_size=n_val, random_state=seed)
-        else:
             val_groups = np.array([],dtype=int)
-        groups_to_use = set((train_groups if self.mode == 'train' else test_groups if self.mode == 'test' else val_groups).tolist())
+        if test_size > 0:
+            train_groups, test_groups = train_test_split(train_groups, test_size=n_test, random_state=seed)
+        else:
+            test_groups = np.array([],dtype=int)
+        groups_to_use = set((train_groups if self.mode == 'train' else val_groups if self.mode == 'val' else test_groups).tolist())
 
         self.preprocessed_data = [self.preprocessed_data[i] for i,g in enumerate(self.group) if g.item() in groups_to_use]
 
-        self.test_identity = test_identity
+        self.val_identity = val_identity
 
         self.original_index = [self.original_index[i] for i,g in enumerate(self.group) if g.item() in groups_to_use]
 
@@ -527,12 +527,10 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         return DataLoader(self.train_ds, batch_size=self.batch_size, num_workers=self.num_workers,shuffle=self.shuffle, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
 
     def val_dataloader(self):
-        # TODO: fix this thing
-        return DataLoader(self.test_ds, batch_size=self.val_batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
+        return DataLoader(self.val_ds, batch_size=self.val_batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
 
     def test_dataloader(self):
-        # TODO: fix this thing
-        return DataLoader(self.val_ds, batch_size=self.test_batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
+        return DataLoader(self.test_ds, batch_size=self.test_batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
 
 
 def make_filter(cache, face_thresh = 1000, edge_thresh = 1000, vert_thresh = 1000, ignore_origins = False):
