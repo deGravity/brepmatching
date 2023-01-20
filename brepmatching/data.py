@@ -489,6 +489,7 @@ class BRepMatchingDataModule(pl.LightningDataModule):
     test_identity: bool = False,
     exact_match_labels: bool = False,
     val_batch_size: int = None,
+    test_batch_size: int = None,
     ):
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -503,7 +504,8 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         self.single_set = single_set
         self.test_identity = test_identity
         self.exact_match_labels = exact_match_labels
-        self.val_batch_size = batch_size if val_batch_size == None else val_batch_size
+        self.val_batch_size = batch_size if val_batch_size is None else val_batch_size
+        self.test_batch_size = self.val_batch_size if test_batch_size is None else test_batch_size
 
         self.prepare_data_per_node = False #workaround to seeming bug in lightning
 
@@ -525,10 +527,12 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         return DataLoader(self.train_ds, batch_size=self.batch_size, num_workers=self.num_workers,shuffle=self.shuffle, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
 
     def val_dataloader(self):
+        # TODO: fix this thing
         return DataLoader(self.test_ds, batch_size=self.val_batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
 
     def test_dataloader(self):
-        return DataLoader(self.val_ds, batch_size=self.val_batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
+        # TODO: fix this thing
+        return DataLoader(self.val_ds, batch_size=self.test_batch_size, num_workers=self.num_workers,shuffle=False, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
 
 
 def make_filter(cache, face_thresh = 1000, edge_thresh = 1000, vert_thresh = 1000, ignore_origins = False):
