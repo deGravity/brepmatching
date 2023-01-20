@@ -10,7 +10,7 @@ from automate import Part, PartFeatures, PartOptions, part_to_graph
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 
-from .utils import zip_hetdata, make_containing_dir
+from .utils import zip_hetdata, make_containing_dir, fix_file_descriptors
 import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
 
@@ -18,10 +18,79 @@ from coincidence_matching import match_parts, match_parts_dict, get_export_id_ty
 from .transforms import *
 import warnings
 
+def normalize_pair(
+    orig_part: Part,
+    orig_part_data: str,
+    var_part: Part,
+    var_part_data: str,
+    options: PartFeatures
+):
+    orig_bb = orig_part.summary.bounding_box
+    var_bb = var_part.summary.bounding_box
+
+    bb_corners = np.concatenate([orig_bb, var_bb],axis=0)
+
+    joint_min = bb_corners.min(axis=0)
+    joint_max = bb_corners.max(axis=0)
+    diag = joint_max - joint_min
+    center = (joint_min + joint_max) / 2
+    scale = diag.max() / 2
+
+    xfrm = np.array([
+        [1, 0, 0, -center[0]],
+        [0, 1, 0, -center[1]],
+        [0, 0, 1, -center[2]],
+        [0, 0, 0,      scale]
+    ])
+
+    options.transform = True
+    options.transform_matrix = xfrm
+
+    orig_part_xfrmed = Part(orig_part_data, options)
+    var_part_xfrmed = Part(var_part_data, options)
+
+    if not (orig_part_xfrmed.is_valid and var_part_xfrmed.is_valid):
+        return None, None, 'bad_transform'
+
+    try:
+        conservative_transform_orig = (
+            (orig_part.brep.relations.edge_to_vertex == orig_part_xfrmed.brep.relations.edge_to_vertex).all() and 
+            (orig_part.brep.relations.face_to_face == orig_part_xfrmed.brep.relations.face_to_face).all() and 
+            (orig_part.brep.relations.face_to_loop == orig_part_xfrmed.brep.relations.face_to_loop).all() and 
+            (orig_part.brep.relations.loop_to_edge == orig_part_xfrmed.brep.relations.loop_to_edge).all()).item()
+        
+        conservative_transform_var = (
+            (var_part.brep.relations.edge_to_vertex == var_part_xfrmed.brep.relations.edge_to_vertex).all() and 
+            (var_part.brep.relations.face_to_face   == var_part_xfrmed.brep.relations.face_to_face).all() and 
+            (var_part.brep.relations.face_to_loop   == var_part_xfrmed.brep.relations.face_to_loop).all() and 
+            (var_part.brep.relations.loop_to_edge   == var_part_xfrmed.brep.relations.loop_to_edge).all()).item()
+        
+        if not (conservative_transform_orig and conservative_transform_var):
+            return None, None, 'topo_change_xfrm'
+
+    except Exception as e:
+        return None, None, 'topo_change_xfrm'
+
+    return orig_part_xfrmed, var_part_xfrmed, 'ok'
 
 
 
-def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, bl_m_path, include_meshes=True, skip_onshape_baseline=False, return_reason = False):
+
+def make_match_data(
+    zf, 
+    orig_path, 
+    var_path, 
+    match_path, 
+    bl_o_path, 
+    bl_v_path, 
+    bl_m_path, 
+    include_meshes=True, 
+    skip_onshape_baseline=False, 
+    return_reason = False, 
+    normalize=False, 
+    use_mesh_quality=False, 
+    mesh_quality=0.01
+):
     has_baseline_data = False
     if orig_path not in zf.namelist() or var_path not in zf.namelist() or match_path not in zf.namelist():
         if return_reason:
@@ -32,6 +101,9 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
         if bl_o_path not in zf.namelist() or bl_v_path not in zf.namelist() or bl_m_path not in zf.namelist():
             has_baseline_data = False
     options = PartOptions()
+    if use_mesh_quality:
+        options.set_quality = True
+        options.quality = mesh_quality
     if not include_meshes:
         options.tesselate = False
     with zf.open(match_path,'r') as f:
@@ -50,6 +122,10 @@ def make_match_data(zf, orig_path, var_path, match_path, bl_o_path, bl_v_path, b
         if return_reason:
             return None, 'var_invalid'
         return None
+    if normalize:
+        orig_part, var_part, reason = normalize_pair(orig_part, orig_part_data, var_part, var_part_data, options)
+        if reason != 'ok':
+            return None, reason
     features = PartFeatures()
     if not include_meshes:
         features.mesh = False
@@ -242,12 +318,22 @@ def identity_collate(data):
 class ParallelPreprocessor(torch.utils.data.Dataset):
 
     @classmethod
-    def preprocess(cls, zip_path, cache_path, num_workers=8, use_file_system=False):
+    def preprocess(cls, 
+        zip_path, 
+        cache_path, 
+        num_workers=8,
+        use_hq=False,
+        quality=0.01,
+        normalize=False
+    ):
+        fix_file_descriptors()
         warnings.filterwarnings('ignore', category=UserWarning) # hide annoying warnings
-        if use_file_system:
-            torch.multiprocessing.set_sharing_strategy('file_system')
         
-        processor = ParallelPreprocessor(zip_path, cache_path)
+        processor = ParallelPreprocessor(
+            zip_path, cache_path,
+            use_hq=use_hq,
+            quality=quality,
+            normalize=normalize)
 
         loader = torch.utils.data.DataLoader(
             processor, 
@@ -266,7 +352,9 @@ class ParallelPreprocessor(torch.utils.data.Dataset):
         return dataset
 
 
-    def __init__(self, zip_path, cache_path):
+    def __init__(self, zip_path, cache_path, use_hq=False,
+        quality=0.01,
+        normalize=False):
         with ZipFile(zip_path, 'r') as zf:
             with zf.open('data/VariationData/all_variations.csv','r') as f:
                 self.variations = pd.read_csv(f)
@@ -281,6 +369,10 @@ class ParallelPreprocessor(torch.utils.data.Dataset):
         self.zf = None
         self.zip_path = zip_path
         self.cache_path = cache_path
+
+        self.use_hq=use_hq
+        self.quality=quality
+        self.normalize=normalize
 
     def get_zip(self):
         if self.zf is None:
@@ -332,7 +424,14 @@ class ParallelPreprocessor(torch.utils.data.Dataset):
 
         zf = self.get_zip()
 
-        data, reason = make_match_data(zf, o_path, v_path, m_path, bl_o_path, bl_v_path, bl_m_path, skip_onshape_baseline=skip_onshape_baseline, return_reason=True)
+        data, reason = make_match_data(
+            zf, o_path, v_path, m_path, bl_o_path, 
+            bl_v_path, bl_m_path, 
+            skip_onshape_baseline=skip_onshape_baseline, 
+            return_reason=True,
+            normalize=self.normalize, 
+            use_mesh_quality=self.use_hq, 
+            mesh_quality=self.quality)
 
         return {
             'idx': idx,
