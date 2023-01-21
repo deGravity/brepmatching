@@ -401,7 +401,7 @@ def load_data(zip_path=None, cache_path=None):
 
 follow_batch=['left_vertices','right_vertices','left_edges', 'right_edges','left_faces','right_faces', 'faces_matches', 'edges_matches', 'vertices_matches']
 class BRepMatchingDataset(torch.utils.data.Dataset):
-    def __init__(self, cached_data, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None, require_onshape_matchings=True):
+    def __init__(self, cached_data, debug=False, mode='train', seed=42, test_size=0.1, val_size=0.1, test_identity=False, transforms=None, require_onshape_matchings=True, enable_blacklist=True):
         self.debug = debug
         self.transforms = compose(*transforms[::-1]) if transforms else None
 
@@ -436,9 +436,10 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
             self.preprocessed_data = [self.preprocessed_data[i] for i in data_with_onshape_matchings]
             self.original_index = [self.original_index[i] for i in data_with_onshape_matchings]
 
-        blacklist = {3096, 3097, 3098, 6372, 6373, 6374}
-        self.preprocessed_data = [self.preprocessed_data[i] for i, o in enumerate(self.original_index) if o not in blacklist]
-        self.original_index = [o for o in self.original_index if o not in blacklist]
+        if enable_blacklist:
+            blacklist = {3096, 3097, 3098, 6372, 6373, 6374}
+            self.preprocessed_data = [self.preprocessed_data[i] for i, o in enumerate(self.original_index) if o not in blacklist]
+            self.original_index = [o for o in self.original_index if o not in blacklist]
         
     def __getitem__(self, idx):
         data = self.preprocessed_data[idx]
