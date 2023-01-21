@@ -491,6 +491,7 @@ class BRepMatchingDataModule(pl.LightningDataModule):
     exact_match_labels: bool = False,
     val_batch_size: int = None,
     test_batch_size: int = None,
+    enable_blacklist: bool = True,
     ):
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -507,6 +508,9 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         self.exact_match_labels = exact_match_labels
         self.val_batch_size = batch_size if val_batch_size is None else val_batch_size
         self.test_batch_size = self.val_batch_size if test_batch_size is None else test_batch_size
+        self.enable_blacklist = enable_blacklist
+
+        print("train_batch_size", self.batch_size, "val_batch_size", self.val_batch_size, "test_batch_size", self.test_batch_size)
 
         self.prepare_data_per_node = False #workaround to seeming bug in lightning
 
@@ -516,13 +520,13 @@ class BRepMatchingDataModule(pl.LightningDataModule):
         if self.exact_match_labels:
             transforms.append(use_bl_exact_match_labels)
         cached_data = load_data(zip_path=self.zip_path, cache_path=self.cache_path)
-        self.train_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='train', test_identity=self.test_identity, transforms=transforms)
+        self.train_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='train', test_identity=self.test_identity, transforms=transforms, enable_blacklist=self.enable_blacklist)
         if self.single_set:
             self.test_ds = self.train_ds
             self.val_ds = self.train_ds
         else:
-            self.test_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='test', test_identity=self.test_identity, transforms=transforms)
-            self.val_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='val', test_identity=self.test_identity, transforms=transforms)
+            self.test_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='test', test_identity=self.test_identity, transforms=transforms, enable_blacklist=self.enable_blacklist)
+            self.val_ds = BRepMatchingDataset(cached_data=cached_data, debug=self.debug, seed = self.seed, test_size = self.test_size, val_size = self.val_size, mode='val', test_identity=self.test_identity, transforms=transforms, enable_blacklist=self.enable_blacklist)
 
     def train_dataloader(self):
         return DataLoader(self.train_ds, batch_size=self.batch_size, num_workers=self.num_workers,shuffle=self.shuffle, persistent_workers=self.persistent_workers, follow_batch=follow_batch)
