@@ -415,12 +415,12 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
         n_val = int(len(unique_groups)*val_size) if val_size < 1 else val_size
         
         if val_size > 0:
-            train_groups, val_groups = train_test_split(train_groups, test_size=n_val, random_state=seed)
+            train_groups, val_groups = train_test_split(unique_groups, test_size=n_val, random_state=seed)
         else:
             train_groups = unique_groups
             val_groups = np.array([],dtype=int)
         if test_size > 0:
-            train_groups, test_groups = train_test_split(unique_groups, test_size=n_test, random_state=seed)
+            train_groups, test_groups = train_test_split(train_groups, test_size=n_test, random_state=seed)
         else:
             test_groups = np.array([],dtype=int)
         
