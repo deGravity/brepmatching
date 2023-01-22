@@ -71,6 +71,7 @@ class MatchingModel(pl.LightningModule):
 
         mp_exact_matches: bool = False,
         mp_overlap_matches: bool = False,
+        mp_cur_matches: bool = True,
         use_onshape: str = "none",                  # "none", "voting", "aggregate"
         bce_loss_weight: float = 1.0,
 
@@ -99,7 +100,7 @@ class MatchingModel(pl.LightningModule):
             batch_norm=batch_norm,
             mp_exact_matches=mp_exact_matches,
             mp_overlap_matches=mp_overlap_matches,
-            mp_cur_matches=True, # TODO: expose parameter
+            mp_cur_matches=mp_cur_matches,
             use_uvnet_features=use_uvnet_features,
             crv_emb_dim=crv_emb_dim,
             srf_emb_dim=srf_emb_dim)
