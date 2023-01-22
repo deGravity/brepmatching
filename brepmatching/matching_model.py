@@ -76,7 +76,7 @@ class MatchingModel(pl.LightningModule):
 
         # inference time params
         threshold: float = 0.75,                    # default threshold
-        init_strategy: str = "exact",               # "exact" or "overlap"
+        init_strategy: str = "exact",               # "exact" or "overlap" or "none"
 
         # what to execute
         test_greedy: bool = True,
@@ -122,7 +122,7 @@ class MatchingModel(pl.LightningModule):
             self.os_projector = Linear(1, sbgcn_size * 2)
 
         # inference params
-        assert(init_strategy in ["exact", "overlap"])
+        assert(init_strategy in ["exact", "overlap", "none"])
         self.init_strategy = init_strategy
         self.threshold = threshold
 
@@ -270,7 +270,8 @@ class MatchingModel(pl.LightningModule):
                 if k != "v":
                     # no overlap for vertices
                     matches = torch.cat([matches, data[f"bl_overlap_{kinds}_matches"].clone()], dim=-1)
-
+            elif strategy == "none":
+                matches = torch.zeros((2, 0), device=self.device)
             else:
                 raise NotImplementedError()
             setattr(data, f"cur_{kinds}_matches", matches)
@@ -622,6 +623,8 @@ class MatchingModel(pl.LightningModule):
             cur_algo = algo
             if self.init_strategy == "overlap":
                 cur_algo += "_ovl"
+            elif self.init_strategy == "none":
+                cur_algo += "_noinit"
             df.to_csv(f"{self.logger.log_dir}/{cur_algo}.csv")
 
     def compile_data_and_save(self, outputs, key):
