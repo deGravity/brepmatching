@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import torch
 import xxhash
-from automate import Part, PartFeatures, PartOptions, part_to_graph
+from automate import Part, PartFeatures, PartOptions, part_to_graph, Boolean, BooleanOperation
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 
@@ -50,7 +50,7 @@ def normalize_pair(
     var_part_xfrmed = Part(var_part_data, options)
 
     if not (orig_part_xfrmed.is_valid and var_part_xfrmed.is_valid):
-        return None, None, 'bad_transform'
+        return None, None, None, 'bad_transform'
 
     try:
         conservative_transform_orig = (
@@ -66,15 +66,25 @@ def normalize_pair(
             (var_part.brep.relations.loop_to_edge   == var_part_xfrmed.brep.relations.loop_to_edge).all()).item()
         
         if not (conservative_transform_orig and conservative_transform_var):
-            return None, None, 'topo_change_xfrm'
+            return None, None, None, 'topo_change_xfrm'
 
     except Exception as e:
-        return None, None, 'topo_change_xfrm'
+        return None, None, None, 'topo_change_xfrm'
 
-    return orig_part_xfrmed, var_part_xfrmed, 'ok'
+    return orig_part_xfrmed, var_part_xfrmed, xfrm, 'ok'
 
 
-
+def combine_part_mesh(meshes: list[Part]):
+    Vs = []
+    Fs = []
+    V_count = 0
+    for m in meshes:
+        Vs.append(m.mesh.V)
+        Fs.append(m.mesh.F + V_count)
+        V_count += len(m.mesh.V)
+    Vss = np.concatenate(Vs, axis=0) if len(Vs) > 0 else np.empty((0, 3))
+    Fss = np.concatenate(Fs, axis=0) if len(Fs) > 0 else np.empty((0, 3), dtype=np.int32)
+    return Vss, Fss
 
 def make_match_data(
     zf, 
@@ -86,16 +96,14 @@ def make_match_data(
     bl_m_path, 
     include_meshes=True, 
     skip_onshape_baseline=False, 
-    return_reason = False, 
     normalize=False, 
     use_mesh_quality=False, 
-    mesh_quality=0.01
-):
+    mesh_quality=0.01,
+    compute_intersection=False
+) -> dict :
     has_baseline_data = False
     if orig_path not in zf.namelist() or var_path not in zf.namelist() or match_path not in zf.namelist():
-        if return_reason:
-            return None, 'missing_path'
-        return None
+        return {"reason": "missing_path"}
     if bl_o_path is not None:
         has_baseline_data = True
         if bl_o_path not in zf.namelist() or bl_v_path not in zf.namelist() or bl_m_path not in zf.namelist():
@@ -112,30 +120,59 @@ def make_match_data(
         orig_part_data = f.read().decode('utf-8')
         orig_part = Part(orig_part_data, options)
     if not orig_part.is_valid:
-        if return_reason:
-            return None, 'orig_invalid'
-        return None
+        return {"reason": "orig_invalid"}
     with zf.open(var_path, 'r') as f:
         var_part_data = f.read().decode('utf-8')
         var_part = Part(var_part_data, options)
     if not var_part.is_valid:
-        if return_reason:
-            return None, 'var_invalid'
-        return None
+        return {"reason": "var_invalid"}
     if normalize:
-        orig_part, var_part, reason = normalize_pair(orig_part, orig_part_data, var_part, var_part_data, options)
+        orig_part, var_part, xfrm, reason = normalize_pair(orig_part, orig_part_data, var_part, var_part_data, options)
         if reason != 'ok':
-            return None, reason
+            return {"reason": reason}
     features = PartFeatures()
     if not include_meshes:
         features.mesh = False
-    orig_brep = part_to_graph(orig_part, features)
-    var_brep = part_to_graph(var_part, features)
+    try:
+        orig_brep = part_to_graph(orig_part, features)
+        var_brep = part_to_graph(var_part, features)
+    except Exception as e:
+        return {"reason": "part_to_graph failed"}
+
     for brep in (orig_brep, var_brep):
         if any([torch.any(torch.isnan(feat)) for feat in (brep.faces, brep.edges, brep.vertices)]):
-            if return_reason:
-                return None, 'has_nans'
-            return None
+            return {"reason": "has_nans"}
+
+    ### Intersections ###
+
+    extra = {
+        "has_intersection": False
+    }
+
+    if compute_intersection:
+        if normalize:
+            options.transform = True
+            options.transform_matrix = xfrm
+        both = Boolean(orig_part_data, var_part_data, BooleanOperation.INTERSECT, options)
+        left_only = Boolean(orig_part_data, var_part_data, BooleanOperation.SUBTRACT, options)
+        right_only = Boolean(var_part_data, orig_part_data, BooleanOperation.SUBTRACT, options)
+
+        both_V, both_F = combine_part_mesh(both.parts)
+        left_only_V, left_only_F = combine_part_mesh(left_only.parts)
+        right_only_V, right_only_F = combine_part_mesh(right_only.parts)
+
+        extra["has_intersection"] = True
+        extra["both_V"] = both_V
+        extra["both_F"] = both_F
+        extra["left_only_V"] = left_only_V
+        extra["left_only_F"] = left_only_F
+        extra["right_only_V"] = right_only_V
+        extra["right_only_F"] = right_only_F
+
+
+
+
+    ########
 
     export_id_hash = lambda x: xxhash.xxh32(x).intdigest()
     match2tensor = lambda x: torch.tensor(x).long().T if len(x) > 0 else torch.empty((2,0)).long()
@@ -232,9 +269,8 @@ def make_match_data(
         data.__edge_sets__['os_bl_vertices_matches'] = ['left_vertices', 'right_vertices']
         data.n_onshape_baseline_unmatched = torch.tensor([0]).long()
         data.has_onshape_baseline = torch.tensor([False]).bool()
-        if return_reason:
-            return data, 'ok'
-        return data # Stop now if we don't have baselines in the dataset
+
+        return {"data": data, "reason": "ok", **extra}
 
     with zf.open(bl_m_path,'r') as f:
         bl_matches = json.load(f)
@@ -282,9 +318,7 @@ def make_match_data(
     data.n_onshape_baseline_unmatched = torch.tensor([num_onshape_baseline_unmatched]).long()
     data.has_onshape_baseline = torch.tensor([True]).bool()
 
-    if return_reason:
-        return data, 'ok'
-    return data
+    return {"data": data, "reason": "ok", **extra}
 
 def make_match_tensors(matches, export_id_hash, match2tensor, orig_face_map, orig_edge_map, orig_vert_map, var_face_map, var_edge_map, var_vert_map, orig_classes):
     face_matches = []
@@ -324,7 +358,8 @@ class ParallelPreprocessor(torch.utils.data.Dataset):
         num_workers=8,
         use_hq=False,
         quality=0.01,
-        normalize=False
+        normalize=False,
+        compute_intersection=False
     ):
         fix_file_descriptors()
         warnings.filterwarnings('ignore', category=UserWarning) # hide annoying warnings
@@ -333,14 +368,15 @@ class ParallelPreprocessor(torch.utils.data.Dataset):
             zip_path, cache_path,
             use_hq=use_hq,
             quality=quality,
-            normalize=normalize)
+            normalize=normalize,
+            compute_intersection=compute_intersection)
 
         loader = torch.utils.data.DataLoader(
             processor, 
             batch_size=1, 
             num_workers=num_workers, 
             shuffle=False, 
-            collate_fn = identity_collate
+            collate_fn = identity_collate,
             )
         
         dataset = []
@@ -354,7 +390,8 @@ class ParallelPreprocessor(torch.utils.data.Dataset):
 
     def __init__(self, zip_path, cache_path, use_hq=False,
         quality=0.01,
-        normalize=False):
+        normalize=False,
+        compute_intersection=False):
         with ZipFile(zip_path, 'r') as zf:
             with zf.open('data/VariationData/all_variations.csv','r') as f:
                 self.variations = pd.read_csv(f)
@@ -373,6 +410,7 @@ class ParallelPreprocessor(torch.utils.data.Dataset):
         self.use_hq=use_hq
         self.quality=quality
         self.normalize=normalize
+        self.compute_intersection=compute_intersection
 
     def get_zip(self):
         if self.zf is None:
@@ -424,21 +462,21 @@ class ParallelPreprocessor(torch.utils.data.Dataset):
 
         zf = self.get_zip()
 
-        data, reason = make_match_data(
+        datas = make_match_data(
             zf, o_path, v_path, m_path, bl_o_path, 
             bl_v_path, bl_m_path, 
             skip_onshape_baseline=skip_onshape_baseline, 
-            return_reason=True,
             normalize=self.normalize, 
             use_mesh_quality=self.use_hq, 
-            mesh_quality=self.quality)
+            mesh_quality=self.quality,
+            compute_intersection=self.compute_intersection)
 
         return {
             'idx': idx,
             'group': self.orig_id_dict[variation_record.ps_orig],
-            'data': data,
+            'data': None,
             'original_index': variation_index,
-            'reason': reason
+            **datas
         }
 
 def load_data(zip_path=None, cache_path=None):
