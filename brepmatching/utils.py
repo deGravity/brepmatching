@@ -182,13 +182,15 @@ def separate_batched_matches(matches: torch.Tensor,
     given a 2xn tensor of matches, and the batches tensor of the left and right nodes into which the matches index,
     return a list of b matches, with local indices within each instance
     """
+    device = matches.device
+    if matches.numel() == 0:
+        return [torch.empty((2, 0), dtype=torch.long, device=device) for _ in range(num_batches)]
     match_list = []
     match_batches = left_topo_batches[matches[0]]
     left_batch_counts = [(left_topo_batches == b).sum() for b in range(num_batches)]
     right_batch_counts = [(right_topo_batches == b).sum() for b in range(num_batches)]
     left_batch_offsets = []
     right_batch_offsets = []
-    device = matches.device
     offset = torch.tensor(0, device=device)
     for size in left_batch_counts:
         left_batch_offsets.append(offset.clone())

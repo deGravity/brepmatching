@@ -272,13 +272,14 @@ class MatchingModel(pl.LightningModule):
                     # no overlap for vertices
                     matches = torch.cat([matches, data[f"bl_overlap_{kinds}_matches"].clone()], dim=-1)
             elif strategy == "none":
-                matches = torch.zeros((2, 0), device=self.device)
+                matches = torch.zeros((2, 0), dtype=torch.long, device=self.device)
             else:
                 raise NotImplementedError()
             setattr(data, f"cur_{kinds}_matches", matches)
             data.__edge_sets__[f"cur_{kinds}_matches"] = [f"left_{kinds}", f"right_{kinds}"]
-            mask[k][matches[0], :] = -1
-            mask[k][:, matches[1]] = -1
+            if matches.numel() > 0:
+                mask[k][matches[0], :] = -1
+                mask[k][:, matches[1]] = -1
             all_matches[k] = matches
         return all_matches
 
