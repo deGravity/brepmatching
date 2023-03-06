@@ -137,6 +137,7 @@ class MatchingModel(pl.LightningModule):
 
         # init strategy
         assert(init_strategy in ["exact", "overlap", "none"])
+        self.init_strategy = init_strategy
         self.train_init_keep_ratio = train_init_keep_ratio
         self.train_random_init_keep_ratio = train_random_init_keep_ratio
         self.test_init_strategy = InitStrategy(init_strategy, init_keep_ratio, None)
