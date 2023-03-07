@@ -1,13 +1,22 @@
 import pytorch_lightning as pl
+from automate import HetData
 from brepmatching.models import PairEmbedder
 import torch
 from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
-from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg, separate_batched_matches
+from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg, separate_batched_matches, TOPO_KINDS, compute_metrics_from_matches, batch_matches
+from typing import Any, Optional
+from dataclasses import dataclass
 
 #from torch.profiler import profile, record_function, ProfilerActivity
+
+@dataclass
+class InitStrategy:
+    strategy: str = "exact"
+    keep_ratio: float = 1.
+    seed: Optional[int] = None
 
 class MatchingModel(pl.LightningModule):
 
@@ -43,6 +52,10 @@ class MatchingModel(pl.LightningModule):
         self.softmax = LogSoftmax(dim=1)
         self.batch_norm = batch_norm
         self.temperature = Parameter(torch.tensor(0.07))
+
+        init_strategy: str = "exact"
+        init_keep_ratio: float = 1.
+        self.test_init_strategy = InitStrategy(init_strategy, init_keep_ratio, None)
 
         self.averages = {}
         for topo_type in ['faces', 'edges','vertices']:
@@ -222,8 +235,40 @@ class MatchingModel(pl.LightningModule):
         self.log(topo_type + '/baseline_missed', missed[0], batch_size = batch_size)
 
 
+
     
-    def log_metrics(self, data, orig_emb, var_emb, topo_type):
+    def do_greedy_and_compute_metric(self, data: HetData, orig_emb: dict[str, torch.Tensor], var_emb: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict[str, np.ndarray]]:
+        """
+        `data` will be modified.
+        """
+
+        
+        #unseen_loss, scores_mtx = self.do_once(data, self.init_strategy)
+        #masks = self.init_masks(data)
+        #init_matches = self.init_cur_match(data, masks, self.init_strategy)
+
+        all_metrics = {}
+        for kinds, _, k in TOPO_KINDS:
+            batch_left = getattr(data, 'left_'+kinds+'_batch')
+            batch_right = getattr(data, 'right_'+kinds+'_batch')
+            exact_matches = getattr(data, 'bl_exact_' + kinds + '_matches')
+            exact_matches_unbatched = [t.cpu().numpy() for t in separate_batched_matches(exact_matches)]
+            #matches, scores = greedy_match_2(scores_mtx[k], masks[k] != -1)
+            scores = self.allscores(data, orig_emb, var_emb, kinds)
+            scores = list(map(lambda t: t.cpu().numpy(), scores))
+            greedy_matches_all_raw, greedy_scores_all = greedy_matching(scores, exact_matches_unbatched)
+            greedy_matches_all = batch_matches(greedy_matches_all_raw, batch_left.cpu().numpy(), batch_right.cpu().numpy())
+            matches = np.array(greedy_matches_all).T
+            metrics = []
+            for threshold in self.thresholds:
+                concat_matches = torch.cat([exact_matches, matches[:, greedy_scores_all > threshold]], dim=1)
+                cur_metrics = compute_metrics_from_matches(data, kinds, concat_matches)
+                metrics.append(cur_metrics)
+            all_metrics[k] = np.array(metrics)
+        return all_metrics
+
+    
+    def log_metrics_orig(self, data, orig_emb, var_emb, topo_type):
         if self.log_baselines:
             self._log_baselines(data, topo_type)
 
@@ -297,32 +342,7 @@ class MatchingModel(pl.LightningModule):
         self.logger.experiment.add_figure('precision_recall_flat/' + topo_type, fig_precrecall_flat, self.current_epoch)
         self.logger.experiment.add_figure('precision_recall/' + topo_type, fig_precision_recall, self.current_epoch)
         self.logger.experiment.add_figure('missed_falsepositive/' + topo_type, fig_missed_spurious, self.current_epoch)
-    
 
-    
-    def log_metrics_legacy(self, data, orig_emb, var_emb, topo_type):
-        orig_emb_match = orig_emb[getattr(data, topo_type + '_matches')[0]]
-
-        num_batches = count_batches(data)
-        batch_right_inds = []
-        batch_right_feats = []
-        for j in range(num_batches):
-            inds = (getattr(data, 'right_'+topo_type+'_batch') == j).nonzero().flatten()
-            batch_right_inds.append(inds)
-            batch_right_feats.append(var_emb[inds].T)
-
-        matches = []
-        for m in range(orig_emb_match.shape[0]):
-            curr_batch = getattr(data, topo_type + '_matches_batch')[m]
-
-            dists =  orig_emb_match[m] @ batch_right_feats[curr_batch]
-            maxind = torch.argmax(dists)
-            matches.append(batch_right_inds[curr_batch][maxind])
-
-        matches = torch.stack(matches)
-        acc = (matches == getattr(data, topo_type + '_matches')[1]).sum() / len(matches)
-        self.log('accuracy/' + topo_type, acc, batch_size = count_batches(data))
-        return acc
 
 
     def get_callbacks(self):
