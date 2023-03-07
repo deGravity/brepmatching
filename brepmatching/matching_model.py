@@ -503,7 +503,7 @@ class MatchingModel(pl.LightningModule):
 
         # iterative
         if self.val_iter:
-            iter_loss, data_after = self.do_iteration(data.clone(), self.threshold, init_strategy)
+            iter_loss, data_after = self.do_iteration(data.clone(), self.threshold, init_strategy, False)
             self.log('val_iter_loss', iter_loss, batch_size=batch_size)
             for kinds, _, _ in TOPO_KINDS:
                 self.log_metrics(data_after, kinds, "val_iter")
