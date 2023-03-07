@@ -6,9 +6,10 @@ from torch.nn import CrossEntropyLoss, LogSoftmax, Parameter
 from torchmetrics import MeanMetric
 import numpy as np
 import torch.nn.functional as F
-from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg, separate_batched_matches, TOPO_KINDS, compute_metrics_from_matches, batch_matches
+from brepmatching.utils import plot_metric, plot_multiple_metrics, plot_tradeoff, greedy_matching, count_batches, compute_metrics, Running_avg, separate_batched_matches, TOPO_KINDS, compute_metrics_from_matches, batch_matches, NUM_METRICS, plot_the_fives, METRIC_COLS
 from typing import Any, Optional
 from dataclasses import dataclass
+import pandas as pd
 
 #from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -186,6 +187,12 @@ class MatchingModel(pl.LightningModule):
         v_loss = self.compute_loss(vert_allperms, data, v_orig, v_var, 'vertices', verts_match_mask)
         loss = f_loss + e_loss + v_loss
         self.log('test_loss', loss, batch_size=count_batches(data))
+
+        orig_emb = {'f': f_orig, 'e': e_orig, 'v': v_orig}
+        var_emb = {'f': f_var, 'e': e_var, 'v': v_var}
+        output = {}
+        output['contrastive'] = self.do_greedy_and_compute_metric(data, orig_emb, var_emb)
+        return output
     
 
     def validation_epoch_end(self, outputs):
@@ -195,7 +202,8 @@ class MatchingModel(pl.LightningModule):
 
 
     def test_epoch_end(self, outputs):
-        self.validation_epoch_end(self, outputs)
+        self.log_metrics_v_thresh(outputs, "contrastive", "test_contrastive", save=True)
+        self.compile_data_and_save(outputs, "contrastive")
     
 
     def allscores(self, data, orig_emb, var_emb, topo_type):
@@ -237,7 +245,7 @@ class MatchingModel(pl.LightningModule):
 
 
     
-    def do_greedy_and_compute_metric(self, data: HetData, orig_emb: dict[str, torch.Tensor], var_emb: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict[str, np.ndarray]]:
+    def do_greedy_and_compute_metric(self, data: HetData, orig_emb: dict[str, torch.Tensor], var_emb: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
         """
         `data` will be modified.
         """
@@ -267,8 +275,63 @@ class MatchingModel(pl.LightningModule):
             all_metrics[k] = np.array(metrics)
         return all_metrics
 
+    def compile_data_and_save(self, outputs, key):
+        all_outputs = [o[key] for o in outputs]
+        torch.save(all_outputs, f"{self.logger.log_dir}/{key}.pt")
+
+    def log_metrics_v_thresh(self, outputs, algo: str, prefix: str, save: bool = False):
+        """
+        algo: "greedy" or "iter"
+        """
+        all_metrics = {
+            "f": np.zeros_like(outputs[0][algo]["f"]),
+            "e": np.zeros_like(outputs[0][algo]["e"]),
+            "v": np.zeros_like(outputs[0][algo]["v"]),
+        }
+        for output in outputs:
+            for _, _, k in TOPO_KINDS:
+                all_metrics[k] += output[algo][k]
+        
+        for kinds, _, k in TOPO_KINDS:
+            all_metrics[k] /= len(outputs)
+
+            true_pos, true_neg, missed, incorrect, false_pos, \
+                precision, recall \
+                    = (all_metrics[k][:, i] for i in range(NUM_METRICS))
+            
+            fig_all = plot_the_fives(true_pos, true_neg, missed, incorrect, false_pos,
+                                     self.thresholds, f"Metrics vs. Threshold ({kinds})")
+        
+            fig_precrecall_flat = plot_multiple_metrics({
+                'precision': precision,
+                'recall': recall
+            }, self.thresholds, f"Precision & Recall vs. Threshold ({kinds})")
+
+            label_indices = [0, len(self.thresholds) // 2, -1]
+            fig_precision_recall = plot_tradeoff(
+                recall, precision, self.thresholds, label_indices,
+                'Recall', 'Precision', f" ({kinds})")
+
+            self.logger.experiment.add_figure(f'{prefix}_metric_v_thresh/{kinds}', fig_all, self.current_epoch)
+            self.logger.experiment.add_figure(f'{prefix}_precision_recall_v_thresh/{kinds}', fig_precrecall_flat, self.current_epoch)
+            self.logger.experiment.add_figure(f'{prefix}_precision_v_recall/{kinds}', fig_precision_recall, self.current_epoch)
+        
+        if save:
+            entries = []
+            for kinds, _, k in TOPO_KINDS:
+                for threshold, metrics in zip(self.thresholds, all_metrics[k]):
+                    entries.append([threshold, *metrics, kinds])
+            df = pd.DataFrame(entries, columns=["Threshold", *METRIC_COLS, "Kind"])
+            cur_algo = algo
+            if self.init_strategy == "overlap":
+                cur_algo += "_ovl"
+            elif self.init_strategy == "none":
+                cur_algo += "_noinit"
+            df.to_csv(f"{self.logger.log_dir}/{cur_algo}.csv")
+
+
     
-    def log_metrics_orig(self, data, orig_emb, var_emb, topo_type):
+    def log_metrics(self, data, orig_emb, var_emb, topo_type):
         if self.log_baselines:
             self._log_baselines(data, topo_type)
 
