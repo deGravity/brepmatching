@@ -347,7 +347,7 @@
                 "--tensorboard_path",
                 "/projects/grail/jamesn8/projects/mechanical/checkpoints/matching_newmetrics",
                 "--name",
-                "name bothv4_contrastive_shuffle_normfeats_16negatives_test",
+                "bothv4_contrastive_shuffle_normfeats_16negatives_test",
                 "--batch_size",
                 "128",
                 "--cache_path",

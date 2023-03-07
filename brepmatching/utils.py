@@ -107,7 +107,7 @@ def greedy_matching(adjacency_matrices, existing_matches=None):
             matching_scores.append(flattened_adj[j])
             visited_left[coord[0]] = 1
             visited_right[coord[1]] = 1
-        matches = np.stack(matches)
+        matches = np.stack(matches) if len(matches) > 0 else np.array(matches)
         matching_scores = np.array(matching_scores)
         all_matches.append(matches)
         all_matching_scores.append(matching_scores)

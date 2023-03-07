@@ -274,7 +274,7 @@ class MatchingModel(pl.LightningModule):
                 concat_matches = torch.from_numpy(concat_matches)
                 cur_metrics = compute_metrics_from_matches(data, kinds, concat_matches)
                 metrics.append(cur_metrics)
-            all_metrics[k] = np.array(metrics)
+            all_metrics[k] = torch.stack(metrics).cpu().numpy()
         return all_metrics
 
     def compile_data_and_save(self, outputs, key):
@@ -325,10 +325,6 @@ class MatchingModel(pl.LightningModule):
                     entries.append([threshold, *metrics, kinds])
             df = pd.DataFrame(entries, columns=["Threshold", *METRIC_COLS, "Kind"])
             cur_algo = algo
-            if self.init_strategy == "overlap":
-                cur_algo += "_ovl"
-            elif self.init_strategy == "none":
-                cur_algo += "_noinit"
             df.to_csv(f"{self.logger.log_dir}/{cur_algo}.csv")
 
 
