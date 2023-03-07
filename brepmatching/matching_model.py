@@ -67,7 +67,7 @@ class MatchingModel(pl.LightningModule):
             self.averages[topo_type + '_incorrect_and_falsepositive'] = Running_avg(num_thresholds)
             self.averages[topo_type + '_missed'] = Running_avg(num_thresholds)
 
-
+        self.thresholds = np.linspace(-1, 1, self.num_thresholds + 1)
         self.save_hyperparameters()
     
 
@@ -260,16 +260,18 @@ class MatchingModel(pl.LightningModule):
             batch_left = getattr(data, 'left_'+kinds+'_batch')
             batch_right = getattr(data, 'right_'+kinds+'_batch')
             exact_matches = getattr(data, 'bl_exact_' + kinds + '_matches')
-            exact_matches_unbatched = [t.cpu().numpy() for t in separate_batched_matches(exact_matches)]
+            exact_matches_unbatched = [t.cpu().numpy() for t in separate_batched_matches(exact_matches, batch_left, batch_right)]
             #matches, scores = greedy_match_2(scores_mtx[k], masks[k] != -1)
-            scores = self.allscores(data, orig_emb, var_emb, kinds)
+            scores = self.allscores(data, orig_emb[k], var_emb[k], kinds)
             scores = list(map(lambda t: t.cpu().numpy(), scores))
-            greedy_matches_all_raw, greedy_scores_all = greedy_matching(scores, exact_matches_unbatched)
+            greedy_matches_all_raw, greedy_scores_all_raw = greedy_matching(scores, exact_matches_unbatched)
             greedy_matches_all = batch_matches(greedy_matches_all_raw, batch_left.cpu().numpy(), batch_right.cpu().numpy())
+            greedy_scores_all = np.concatenate(greedy_scores_all_raw)
             matches = np.array(greedy_matches_all).T
             metrics = []
             for threshold in self.thresholds:
-                concat_matches = torch.cat([exact_matches, matches[:, greedy_scores_all > threshold]], dim=1)
+                concat_matches = np.concatenate([exact_matches.cpu().numpy(), matches[:, greedy_scores_all > threshold]], axis=1)
+                concat_matches = torch.from_numpy(concat_matches)
                 cur_metrics = compute_metrics_from_matches(data, kinds, concat_matches)
                 metrics.append(cur_metrics)
             all_metrics[k] = np.array(metrics)

@@ -334,6 +334,31 @@
                 "--shuffle",
                 "true",
             ]
+        },
+        {
+            "name": "test testing contrastive on sanka (cpu)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/dev.env",
+            "args": [
+                "--tensorboard_path",
+                "/projects/grail/jamesn8/projects/mechanical/checkpoints/matching_newmetrics",
+                "--name",
+                "name bothv4_contrastive_shuffle_normfeats_16negatives_test",
+                "--batch_size",
+                "128",
+                "--cache_path",
+                "/projects/grail/milinknb/brep-data/BothV4.pt",
+                "--shuffle",
+                "true",
+                "--min_topos", "16",
+                "--num_negative", "16",
+                "--checkpoint_path","/projects/grail/jamesn8/projects/mechanical/checkpoints/matching_newmetrics/bothv4_contrastive_shuffle_normfeats_16negatives/version_0/checkpoints/last.ckpt",
+                "--no_train"
+            ]
         }
     ]
 }
