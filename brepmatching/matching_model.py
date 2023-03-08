@@ -20,7 +20,8 @@ from brepmatching.utils import (
     compute_metrics_from_matches,
     precompute_adjacency,
     propagate_adjacency,
-    unzip_hetdata
+    unzip_hetdata,
+    get_batch_offsets
 )
 from brepmatching.loss import *
 from automate import HetData
@@ -84,7 +85,7 @@ class MatchingModel(pl.LightningModule):
 
         # inference time params
         threshold: float = 0.75,                    # default threshold
-        init_strategy: str = "exact",               # "exact" or "overlap" or "none"
+        init_strategy: str = "exact",               # "exact", "overlap", "none", or "garbage"
         init_keep_ratio: float = 1.,
         train_init_keep_ratio: float = 0.5,
         train_random_init_keep_ratio: bool = False, # if True, train_init_keep_ratio will be ignored
@@ -136,7 +137,7 @@ class MatchingModel(pl.LightningModule):
         self.threshold = threshold
 
         # init strategy
-        assert(init_strategy in ["exact", "overlap", "none"])
+        assert(init_strategy in ["exact", "overlap", "none", "garbage"])
         self.init_strategy = init_strategy
         self.train_init_keep_ratio = train_init_keep_ratio
         self.train_random_init_keep_ratio = train_random_init_keep_ratio
@@ -272,6 +273,34 @@ class MatchingModel(pl.LightningModule):
         strategy = init_strategy.strategy
         keep_ratio = init_strategy.keep_ratio
         seed = init_strategy.seed
+
+        if strategy == "garbage":
+            num_batches = data.num_graphs
+            batch_offsets = get_batch_offsets(data)
+            all_matches = {}
+            if seed is not None: torch.manual_seed(seed)
+            for kinds, _, k in TOPO_KINDS:
+                off_l, off_r = batch_offsets[k]
+                matches = []
+                for b in range(num_batches):
+                    num_l = off_l[b + 1] - off_l[b]
+                    num_r = off_r[b + 1] - off_r[b]
+                    n_keep = round(min(num_l, num_r) * keep_ratio)
+                    ind_l = torch.randperm(num_l, device=self.device)[:n_keep] + off_l[b]
+                    ind_r = torch.randperm(num_r, device=self.device)[:n_keep] + off_r[b]
+                    matches.append(torch.stack([ind_l, ind_r]))
+                matches = torch.cat(matches, dim=-1)
+
+                setattr(data, f"cur_{kinds}_matches", matches)
+                data.__edge_sets__[f"cur_{kinds}_matches"] = [f"left_{kinds}", f"right_{kinds}"]
+                if matches.numel() > 0:
+                    mask[k][matches[0], :] = -1
+                    mask[k][:, matches[1]] = -1
+                all_matches[k] = matches
+
+            if seed is not None: torch.seed()
+            return all_matches
+
 
         all_matches = {}
         for kinds, _, k in TOPO_KINDS:

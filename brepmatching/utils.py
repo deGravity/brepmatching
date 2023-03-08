@@ -151,6 +151,34 @@ def greedy_match_2(scores: torch.Tensor, mask: Optional[torch.Tensor] = None) ->
     return torch.tensor(all_matches, dtype=torch.long, device=scores.device).reshape((-1, 2)).T, \
         torch.tensor(all_scores, device=scores.device)
 
+def get_batch_offsets(data: HetData) -> dict[str, tuple[list[int], list[int]]]:
+    """
+    Given a batched HetData, returns the offset of left and right entities for each batch.
+    The output list has length batch_size + 1.
+
+    Assume a batch is contiguous.
+    data is not modified.
+    """
+    num_batches = data.num_graphs
+    offsets = {}
+    for kinds, _, k in TOPO_KINDS:
+        l_offsets = [0]
+        r_offsets = [0]
+        l_offset = 0
+        r_offset = 0
+        left_topo_batches = data[f"left_{kinds}_batch"]
+        right_topo_batches = data[f"right_{kinds}_batch"]
+        for b in range(num_batches):
+            l_count = (left_topo_batches == b).sum().item()
+            r_count = (right_topo_batches == b).sum().item()
+            l_offset += l_count
+            r_offset += r_count
+            l_offsets.append(l_offset)
+            r_offsets.append(r_offset)
+        offsets[k] = (l_offsets, r_offsets)
+    return offsets
+
+
 def separate_batched_adj_mtx(mtx: torch.Tensor,
                              left_topo_batches: torch.Tensor,
                              right_topo_batches: torch.Tensor,
