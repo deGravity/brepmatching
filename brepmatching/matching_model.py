@@ -85,7 +85,7 @@ class MatchingModel(pl.LightningModule):
 
         # inference time params
         threshold: float = 0.75,                    # default threshold
-        init_strategy: str = "exact",               # "exact", "overlap", "none", or "garbage"
+        init_strategy: str = "exact",               # "exact", "overlap", "none", "garbage", "exact_garbage"
         init_keep_ratio: float = 1.,
         train_init_keep_ratio: float = 0.5,
         train_random_init_keep_ratio: bool = False, # if True, train_init_keep_ratio will be ignored
@@ -137,7 +137,7 @@ class MatchingModel(pl.LightningModule):
         self.threshold = threshold
 
         # init strategy
-        assert(init_strategy in ["exact", "overlap", "none", "garbage"])
+        assert(init_strategy in ["exact", "overlap", "none", "garbage", "exact_garbage"])
         self.init_strategy = init_strategy
         self.train_init_keep_ratio = train_init_keep_ratio
         self.train_random_init_keep_ratio = train_random_init_keep_ratio
@@ -274,7 +274,7 @@ class MatchingModel(pl.LightningModule):
         keep_ratio = init_strategy.keep_ratio
         seed = init_strategy.seed
 
-        if strategy == "garbage":
+        if strategy == "garbage" or strategy == "exact_garbage":
             num_batches = data.num_graphs
             batch_offsets = get_batch_offsets(data)
             all_matches = {}
@@ -282,13 +282,32 @@ class MatchingModel(pl.LightningModule):
             for kinds, _, k in TOPO_KINDS:
                 off_l, off_r = batch_offsets[k]
                 matches = []
-                for b in range(num_batches):
-                    num_l = off_l[b + 1] - off_l[b]
-                    num_r = off_r[b + 1] - off_r[b]
-                    n_keep = round(min(num_l, num_r) * keep_ratio)
-                    ind_l = torch.randperm(num_l, device=self.device)[:n_keep] + off_l[b]
-                    ind_r = torch.randperm(num_r, device=self.device)[:n_keep] + off_r[b]
-                    matches.append(torch.stack([ind_l, ind_r]))
+                if strategy == "garbage":
+                    for b in range(num_batches):
+                        num_l = off_l[b + 1] - off_l[b]
+                        num_r = off_r[b + 1] - off_r[b]
+                        n_keep = min(round(num_r * keep_ratio), num_l)
+                        ind_l = torch.randperm(num_l, device=self.device)[:n_keep] + off_l[b]
+                        ind_r = torch.randperm(num_r, device=self.device)[:n_keep] + off_r[b]
+                        matches.append(torch.stack([ind_l, ind_r]))
+                elif strategy == "exact_garbage":
+                    batch = data[f"left_{kinds}_batch"]
+                    exact_matches = data[f"bl_exact_{kinds}_matches"]
+                    exact_match_batch = batch[exact_matches[0]]
+                    for b in range(num_batches):
+                        num_l = off_l[b + 1] - off_l[b]
+                        num_r = off_r[b + 1] - off_r[b]
+                        exact_matches_b = exact_matches[:, exact_match_batch == b]
+                        rmd_l = torch.tensor([i for i in range(off_l[b], off_l[b] + num_l) if i not in exact_matches_b[0]],
+                                             device=self.device, dtype=torch.int64)
+                        rmd_r = torch.tensor([i for i in range(off_r[b], off_r[b] + num_r) if i not in exact_matches_b[1]],
+                                             device=self.device, dtype=torch.int64)
+                        n_keep = min(round(num_r * keep_ratio), num_l)
+                        ind_l = torch.randperm(len(rmd_l), device=self.device)[:n_keep]
+                        ind_r = torch.randperm(len(rmd_r), device=self.device)[:n_keep]
+                        matches.append(torch.cat([exact_matches_b, torch.stack([rmd_l[ind_l], rmd_r[ind_r]])], dim=-1))
+                else:
+                    raise NotImplementedError()
                 matches = torch.cat(matches, dim=-1)
 
                 setattr(data, f"cur_{kinds}_matches", matches)
@@ -443,8 +462,10 @@ class MatchingModel(pl.LightningModule):
                 assert(lb[l] == rb[r])
 
                 # add (l, r) to matches
+                new_match = torch.tensor([l, r], device=self.device)
+                assert(new_match not in data[f"cur_{mx_kinds}_matches"].T)
                 setattr(data, f"cur_{mx_kinds}_matches",
-                    torch.cat((data[f"cur_{mx_kinds}_matches"], torch.tensor([[l], [r]], device=self.device)), dim=-1))
+                    torch.cat((data[f"cur_{mx_kinds}_matches"], new_match.unsqueeze(0).T), dim=-1))
 
                 if use_adjacency:
                     add_match_to_frontier(l, r, mx_k, adj_data_l, adj_data_r, adj_l, adj_r)
