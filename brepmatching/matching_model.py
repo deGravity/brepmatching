@@ -302,7 +302,7 @@ class MatchingModel(pl.LightningModule):
                                              device=self.device, dtype=torch.int64)
                         rmd_r = torch.tensor([i for i in range(off_r[b], off_r[b] + num_r) if i not in exact_matches_b[1]],
                                              device=self.device, dtype=torch.int64)
-                        n_keep = min(round(num_r * keep_ratio), num_l)
+                        n_keep = min(round(num_r * keep_ratio), min(len(rmd_l), len(rmd_r)))
                         ind_l = torch.randperm(len(rmd_l), device=self.device)[:n_keep]
                         ind_r = torch.randperm(len(rmd_r), device=self.device)[:n_keep]
                         matches.append(torch.cat([exact_matches_b, torch.stack([rmd_l[ind_l], rmd_r[ind_r]])], dim=-1))
