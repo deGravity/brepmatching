@@ -14,3 +14,5 @@ python setup.py install
 pip install -e .
 ```
 
+Using this code requires an active Parasolid license and installation, create an environmental variable called `$PARASOLID_BASE` pointing to your
+Parasolid install prior to any of the above instructions in order to link against the Parasolid library.
