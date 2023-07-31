@@ -508,6 +508,9 @@ class BRepMatchingDataset(torch.utils.data.Dataset):
         self.group = cached_data['group']
         self.original_index = cached_data['original_index']
 
+        if not isinstance(self.group, torch.Tensor):
+            self.group = torch.tensor(self.group)
+
         self.mode = mode
         unique_groups = self.group.unique()
         n_test = int(len(unique_groups)*test_size) if test_size < 1 else test_size
